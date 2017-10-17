@@ -1,0 +1,3 @@
+# environment variables
+EXP_ENV_VAR = 'JOHNNY_EXPERIMENTS'
+SEED_ENV_VAR = 'CHAINER_SEED'
