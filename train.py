@@ -81,6 +81,8 @@ def create_vocabs(t_set, conf):
 
 
 def data_to_rows(data, vocabs, conf):
+    # transform data to rows
+    # each row consists of word indices, pos tag indices, heads, and labels indices
     v, vpos, varcs = vocabs
     if conf.ngram <= 0:
         words_indices = tuple(v.encode(preprocess(w, conf.preprocess)
@@ -94,6 +96,7 @@ def data_to_rows(data, vocabs, conf):
     labels_indices = tuple(map(varcs.encode, data.arctags))
     heads = data.heads
     data_rows = zip(words_indices, pos_indices, heads, labels_indices)
+
     return tuple(data_rows)
 
 
@@ -329,8 +332,10 @@ if __name__ == "__main__":
             visualise_dict(v.index, num_items=50)
 
     if conf.ngram <= 0:
+        # word model
         conf.model.encoder.embedder.in_sizes = [len(v_word), len(v_pos)]
     else:
+        # character model
         conf.model.encoder.embedder.word_encoder.vocab_size = len(v_word)
         conf.model.encoder.embedder.in_sizes = [len(v_pos)]
     conf.model.num_labels = len(v_arc)

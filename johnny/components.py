@@ -57,16 +57,20 @@ class SubwordEmbedder(chainer.Chain):
     def __init__(self, word_encoder, in_sizes=None, out_sizes=None, dropout=0.2):
         self.in_sizes = in_sizes or []
         self.out_sizes = out_sizes or []
+
         super(SubwordEmbedder, self).__init__()
+        
         with self.init_scope():
             self.word_encoder = word_encoder
             for index, (in_size, out_size) in enumerate(zip(self.in_sizes, self.out_sizes), 1):
                 embed_layer = L.EmbedID(in_size, out_size, ignore_label=CHAINER_IGNORE_LABEL)
                 self.set_embed(index, embed_layer)
+        
         self.dropout = dropout
         self.out_size = self.word_encoder.out_size
         if out_sizes:
             self.out_size += sum(out_sizes)
+
         self.is_subword = True
 
     def get_embed(self, index):
@@ -143,7 +147,8 @@ class SentenceEncoder(chainer.Chain):
         sents = in_seqs[0]
         # all sequences in in_seqs are assumed to have length corresponding
         # to in_seqs[0]
-        # we add 1 because we are augmenting the sentence with a ROOT symbol 
+        # we add 1 because we are augmenting the sentence with a ROOT symbol
+
         self.max_seq_len = len(sents[0]) + 1
         self.batch_size = len(sents)
 
@@ -156,6 +161,7 @@ class SentenceEncoder(chainer.Chain):
         if getattr(self.embedder, 'is_subword', False):
             # pad each word with START_WORD END_WORD
             sents = tuple(tuple(map(augment_word, s)) for s in sents)
+
             # unique list of words sorted from longest to shortest
             word_set = set(chain.from_iterable(sents))
             # also include the sentence level markers
