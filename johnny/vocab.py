@@ -306,3 +306,45 @@ class AbstractVocab(object):
             v = pickle.load(f)
             v.mutable = False
             return v
+
+class MorphTags(object):
+    """ 
+    XFEATS inflectional features.
+    Note that we only use inflectional tags from the universal dependencies v2.0.
+    Here, we basically collect all possible universal tag, value pair from the training data
+    and treat unknown tag, value pair during inference as an unknown tag.
+
+    Universal features (15 inflectional features):
+    Gender
+    Animacy
+    Number
+    Case
+    Definite
+    Degree
+    VerbForm
+    Mood
+    Tense
+    Aspect
+    Voice
+    Evident
+    Polarity
+    Person
+    Polite
+    """
+    IN_FEATS = ['Gender', 'Animacy', 'Number', 'Case', 'Definite',
+                'Degree', 'VerbForm', 'Mood', 'Tense', 'Aspect',
+                'Voice', 'Evident', 'Polarity', 'Person', 'Polite',
+                'UNK']
+
+    def __init__(self):
+        super(MorphTags, self).__init__()
+        self.feats = IN_FEATS
+
+    def __repr__(self):
+        return ('XFEATS object\ninflectional tags: %d\n' % len(self))
+
+    def __len__(self):
+        return len(self.feats)
+
+    def get_tags(self, tag):
+        return self.feats

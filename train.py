@@ -9,7 +9,7 @@ from tqdm import tqdm
 from itertools import chain
 from johnny import EXP_ENV_VAR
 from johnny.dep import UDepLoader
-from johnny.vocab import Vocab, AbstractVocab, UDepVocab, UPOSVocab
+from johnny.vocab import Vocab, AbstractVocab, UDepVocab, UPOSVocab, MorphTags
 from johnny.utils import BucketManager
 from johnny.metrics import Average, UAS, LAS
 import johnny.preprocess as pp
@@ -54,18 +54,33 @@ def to_ngrams(word, n=1):
     return tuple(word[i:i+n] for i in range(len(word)-n+1))
 
 
+def to_morphs(lemma, morphs):
+    print(lemma)
+    print(morphs)
+    import pdb
+    pdb.set_trace()
+
+
 def create_vocabs(t_set, conf):
+
     # we don't need to pad in this case
     if conf.ngram <= 0:
-        t_tokens = ((preprocess(w, conf.preprocess) for w in s)
+        # word unit
+        if not conf.morph:
+            t_tokens = ((preprocess(w, conf.preprocess) for w in s)
                     for s in t_set.words)
+        else:
+            t_tokens = (chain.from_iterable(to_morphs(l, feats)
+                    for l, feats in zip(t_set.lemmas, t_set.feats)))
     else:
+        # character unit
         t_tokens = (chain.from_iterable(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram)
-                                        for w in s)
+                    for w in s)
                     for s in t_set.words)
 
     v_word = Vocab(out_size=conf.vocab.size,
                    threshold=conf.vocab.threshold).fit(chain.from_iterable(t_tokens))
+
     # if we are using the CONLL2017 dataset (universal dependencies)
     # then we know the vocabulary beforehand. We use the full vocabulary
     # with predefined keys because it is less errorprone, and because we

@@ -61,7 +61,7 @@ class Dataset(object):
 
     @property
     def feats(self):
-        return tuple(s.feats for s in self.tokens)
+        return tuple(s.feats for s in self.sents)
 
     @property
     def arctags(self):
@@ -299,6 +299,7 @@ class Token(object):
     # in the conllu data - exact order
     CONLLU_ATTRS = ['id', 'form', 'lemma', 'upostag', 'xpostag',
                     'feats', 'head', 'deprel', 'deps', 'misc']
+    
     MORPH_SEP = '|'
     MORPH_ASSIGN = '='
     EMPTY = '_'
@@ -315,18 +316,16 @@ class Token(object):
                         if prop != self.EMPTY else -1)
             elif label == 'feats':
                 if prop == self.EMPTY:
-                    morph_dict = OrderedDict()
+                    morph_dict = list()
                 else:
                     # some conll-x languages have a|b|c feats
                     # in that case we use the pos tag position of feat
                     if self.MORPH_ASSIGN not in prop:
-                        morph_dict = OrderedDict(('%s%s%s' % (args[3],
-                                                       self.MORPH_FIX,
-                                                       i), m) 
-                            for i, m in enumerate(prop.split(self.MORPH_SEP)))
+                        morph_dict = prop.split(self.MORPH_SEP)
                     else:
-                        morph_dict = OrderedDict(m.split(self.MORPH_ASSIGN) 
-                                for m in prop.split(self.MORPH_SEP))
+                        # modify for conll2017 structure
+                        # morph dict is a list of tuple (feature_tag, feature_value)
+                        morph_dict = prop.split(self.MORPH_SEP)
                 setattr(self, Token.CONLLU_ATTRS[i], morph_dict)
             else:
                 setattr(self, Token.CONLLU_ATTRS[i], prop)

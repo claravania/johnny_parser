@@ -7,8 +7,8 @@ max_epochs: 1000
 batch_size: 32
 dev_batch_size: 256
 vocab:
-  size: 5000
-  threshold: 0
+  size: 100
+  threshold: 10
 dataset:
   name: CONLL2017_v2_0
   lang: English
@@ -21,13 +21,20 @@ model:
     dropout: 0.6
     embedder:
       _module: johnny.components
-      _classname: Embedder
-      dropout: 0.4
+      _classname: SubwordEmbedder
+      dropout: 0.2
+      word_encoder:
+        _module: johnny.components
+        _classname: LSTMWordEncoder
+        vocab_size: dunno
+        num_units: 200
+        num_layers: 1
+        rec_dropout: 0.6
+        inp_dropout: 0.2
+        use_bilstm: True
       in_sizes:
       - dunno
-      - dunno
       out_sizes:
-      - 200
       - 30
     num_layers: 2
     num_units: 200
@@ -42,10 +49,10 @@ optimizer:
   grad_clip: 5
   learning_rate: 0.001
 preprocess:
-  collapse_nums: true
-  collapse_triples: true
+  collapse_nums: false
+  collapse_triples: false
   lowercase: true
-  expand_diacritics: false
+  expand_diacritics: true
   remove_diacritics: false
 train_buckets:
   bucket_width: 5
