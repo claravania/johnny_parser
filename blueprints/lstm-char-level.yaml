@@ -2,11 +2,11 @@
 # 1+ corresponds to character ngram size (unigrams, bigrams, trigrams)
 seed: 43
 ngram: 1
-max_epochs: 1000
+max_epochs: 50
 batch_size: 32
 dev_batch_size: 256
 vocab:
-  size: 100
+  size: 500
   threshold: 10
 dataset:
   name: CONLL2017_v2_0
