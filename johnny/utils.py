@@ -40,6 +40,7 @@ class BucketManager(six.Iterator):
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.right_leak = right_leak
+        
         # by default we use the length of the first entry in the row to sort by
         self.row_key = row_key or (lambda x: len(x))
         self.loop_forever = loop_forever
@@ -51,6 +52,7 @@ class BucketManager(six.Iterator):
         assert(self.bucket_width > 0)
         assert(self.max_len > 0)
         assert(self.min_len >= 0)
+
         # +1 because we want to also be able to store sequences of max_len
         # the range is [min_len, max_len]
         bucket_range = self.max_len - self.min_len + 1
@@ -64,11 +66,14 @@ class BucketManager(six.Iterator):
         self.left_samples = np.zeros(self.num_buckets, dtype=np.float32)
 
         for row in data:
+            # each row consists of word/char ids, pos ids, heads, and labels
             length = self.row_key(row)
             adjust_length = length - self.min_len
             which_bucket = (adjust_length // self.bucket_width)
+
             if which_bucket < 0:
                 raise IndexError
+            
             target = self.buckets[which_bucket]
             target[self.DATA_KEY].append(row)
             target[self.END_INDEX_KEY] += 1

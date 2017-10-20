@@ -46,11 +46,14 @@ class GraphParser(chainer.Chain):
         self.unit_mult = 2 if encoder.use_bilstm else 1
 
         with self.init_scope():
+
             self.encoder = encoder
 
             self.vT = L.Linear(mlp_arc_units, 1)
+
             # head
             self.H_arc = L.Linear(self.unit_mult*self.encoder.num_units, mlp_arc_units)
+            
             # dependent
             self.D_arc = L.Linear(self.unit_mult*self.encoder.num_units, mlp_arc_units)
 

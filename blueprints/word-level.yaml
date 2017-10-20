@@ -2,6 +2,7 @@
 # 1+ corresponds to character ngram size (unigrams, bigrams, trigrams)
 seed: 43
 ngram: 0
+morph: true
 max_epochs: 30
 batch_size: 32
 dev_batch_size: 256
