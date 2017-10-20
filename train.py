@@ -71,6 +71,7 @@ def create_vocabs(t_set, conf):
         t_tokens = ((preprocess(w, conf.preprocess) for w in s)
                 for s in t_set.words)
     elif conf.ngram < 0:
+        # morph unit
         morph_tags = MorphTags()
         in_feats = morph_tags.get_tags()
         t_tokens = (chain.from_iterable(to_morphs(l, feats, in_feats)
@@ -356,7 +357,7 @@ if __name__ == "__main__":
     if conf.verbose:
         for v in vocabs:
             print(v)
-            visualise_dict(v.index, num_items=50)
+            # visualise_dict(v.index, num_items=50)
 
     if conf.ngram == 0:
         # word model

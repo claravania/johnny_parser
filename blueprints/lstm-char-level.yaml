@@ -7,7 +7,7 @@ batch_size: 32
 dev_batch_size: 256
 vocab:
   size: 500
-  threshold: 10
+  threshold: 1
 dataset:
   name: CONLL2017_v2_0
   lang: English
