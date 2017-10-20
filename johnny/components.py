@@ -164,6 +164,7 @@ class SentenceEncoder(chainer.Chain):
 
             # unique list of words sorted from longest to shortest
             word_set = set(chain.from_iterable(sents))
+
             # also include the sentence level markers
             # as single words [token]
             word_set.update([(reserved.START_SENTENCE,),

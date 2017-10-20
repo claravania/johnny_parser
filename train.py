@@ -54,24 +54,28 @@ def to_ngrams(word, n=1):
     return tuple(word[i:i+n] for i in range(len(word)-n+1))
 
 
-def to_morphs(lemma, morphs):
-    print(lemma)
-    print(morphs)
-    import pdb
-    pdb.set_trace()
+def to_morphs(lemma, morphs, in_feats):
+    feat_bundle = [lemma.lower()]
+    for m in morphs:
+        tag, value = m.split('=')
+        if tag in in_feats:
+            feat_bundle.append(m)
+    return tuple(feat_bundle)
 
 
 def create_vocabs(t_set, conf):
 
     # we don't need to pad in this case
-    if conf.ngram <= 0:
+    if conf.ngram == 0:
         # word unit
-        if not conf.morph:
-            t_tokens = ((preprocess(w, conf.preprocess) for w in s)
-                    for s in t_set.words)
-        else:
-            t_tokens = (chain.from_iterable(to_morphs(l, feats)
-                    for l, feats in zip(t_set.lemmas, t_set.feats)))
+        t_tokens = ((preprocess(w, conf.preprocess) for w in s)
+                for s in t_set.words)
+    elif conf.ngram < 0:
+        morph_tags = MorphTags()
+        in_feats = morph_tags.get_tags()
+        t_tokens = (chain.from_iterable(to_morphs(l, feats, in_feats)
+                for l, feats in zip(s1, s2)) 
+                for s1, s2 in zip(t_set.lemmas, t_set.feats))
     else:
         # character unit
         t_tokens = (chain.from_iterable(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram)
@@ -99,14 +103,20 @@ def data_to_rows(data, vocabs, conf):
     # transform data to rows
     # each row consists of word indices, pos tag indices, heads, and labels indices
     v, vpos, varcs = vocabs
-    if conf.ngram <= 0:
+    if conf.ngram == 0:
         words_indices = tuple(v.encode(preprocess(w, conf.preprocess)
-                               for w in s)
-                               for s in data.words)
+                        for w in s)
+                        for s in data.words)
+    elif conf.ngram < 0:
+        morph_tags = MorphTags()
+        in_feats = morph_tags.get_tags()
+        words_indices = tuple(tuple(v.encode(to_morphs(l, feats, in_feats))
+                        for l, feats in zip(s1, s2))
+                        for s1, s2 in zip(data.lemmas, data.feats))
     else:
         words_indices = tuple(tuple(v.encode(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram))
-                                             for w in s)
-                              for s in data.words)
+                        for w in s)
+                        for s in data.words)
     pos_indices = tuple(map(vpos.encode, data.upostags))
     labels_indices = tuple(map(varcs.encode, data.arctags))
     heads = data.heads
@@ -338,6 +348,8 @@ if __name__ == "__main__":
     vocabs = create_vocabs(t_set, conf)
     v_word, v_pos, v_arc = vocabs
 
+    v_word.save_txt('vocab.txt')
+
     train_rows = data_to_rows(t_set, vocabs, conf)
     dev_rows = data_to_rows(v_set, vocabs, conf)
 
@@ -346,11 +358,11 @@ if __name__ == "__main__":
             print(v)
             visualise_dict(v.index, num_items=50)
 
-    if conf.ngram <= 0:
+    if conf.ngram == 0:
         # word model
         conf.model.encoder.embedder.in_sizes = [len(v_word), len(v_pos)]
     else:
-        # character model
+        # character or morph model
         conf.model.encoder.embedder.word_encoder.vocab_size = len(v_word)
         conf.model.encoder.embedder.in_sizes = [len(v_pos)]
     conf.model.num_labels = len(v_arc)

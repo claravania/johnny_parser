@@ -1,14 +1,13 @@
 # <=0 ngram means we use word level
 # 1+ corresponds to character ngram size (unigrams, bigrams, trigrams)
 seed: 43
-ngram: 0
-morph: true
-max_epochs: 1000
+ngram: -1
+max_epochs: 50
 batch_size: 32
 dev_batch_size: 256
 vocab:
-  size: 100
-  threshold: 10
+  size: 10000
+  threshold: 1
 dataset:
   name: CONLL2017_v2_0
   lang: English

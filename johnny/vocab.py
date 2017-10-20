@@ -136,6 +136,11 @@ class Vocab(object):
         with open(filepath, 'wb') as f:
             pickle.dump(self, f)
 
+    def save_txt(self, filepath):
+        with open(filepath, 'w') as f:
+            for key, value in sorted(self.index.items(), key=lambda x: x[1]):
+                f.write(str(value) + ' ' + key + '\n')
+
     @classmethod
     def load(cl, filepath):
         with open(filepath, 'rb') as f:
@@ -333,12 +338,11 @@ class MorphTags(object):
     """
     IN_FEATS = ['Gender', 'Animacy', 'Number', 'Case', 'Definite',
                 'Degree', 'VerbForm', 'Mood', 'Tense', 'Aspect',
-                'Voice', 'Evident', 'Polarity', 'Person', 'Polite',
-                'UNK']
+                'Voice', 'Evident', 'Polarity', 'Person', 'Polite']
 
     def __init__(self):
         super(MorphTags, self).__init__()
-        self.feats = IN_FEATS
+        self.feats = self.IN_FEATS
 
     def __repr__(self):
         return ('XFEATS object\ninflectional tags: %d\n' % len(self))
@@ -346,5 +350,6 @@ class MorphTags(object):
     def __len__(self):
         return len(self.feats)
 
-    def get_tags(self, tag):
+    def get_tags(self):
         return self.feats
+
