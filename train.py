@@ -49,6 +49,8 @@ def preprocess(word, conf):
 
 def to_ngrams(word, n=1):
     assert(n > 0)
+    # add start and end of word symbol
+    word = '^' + word + '$'
     if n == 1:
         return tuple(word)
     return tuple(word[i:i+n] for i in range(len(word)-n+1))
