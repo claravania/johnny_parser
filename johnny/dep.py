@@ -343,9 +343,7 @@ class Token(object):
         value = getattr(self, attr)
         if attr == 'feats':
             if value:
-                value = self.MORPH_SEP.join(self.MORPH_ASSIGN.join((key, val))
-                                            if self.MORPH_FIX not in key else val
-                                            for key, val in value.items())
+                value = self.MORPH_SEP.join(value)
             else:
                 value = self.EMPTY
         return value
