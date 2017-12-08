@@ -63,6 +63,18 @@ def to_morphs(lemma, morphs, in_feats):
     return tuple(feat_bundle)
 
 
+def get_max_sub_len(t_set):
+    max_sub_len = 0
+    morph_tags = MorphTags()
+    in_feats = morph_tags.get_tags()
+    for s1, s2 in zip(t_set.lemmas, t_set.feats):
+        for l, feats in zip(s1, s2):
+            sub_len = len(to_morphs(l, feats, in_feats)) + 2  # add 2 for start and end symbols
+            if sub_len > max_sub_len:
+                max_sub_len = sub_len
+    return max_sub_len
+
+
 def create_vocabs(t_set, conf):
 
     # we don't need to pad in this case
@@ -366,6 +378,10 @@ if __name__ == "__main__":
         # character or morph model
         conf.model.encoder.embedder.word_encoder.vocab_size = len(v_word)
         conf.model.encoder.embedder.in_sizes = [len(v_pos)]
+        if conf.ngram < 0:
+            # for sub_attn model
+            # TODO: may need too for character model
+            conf.model.encoder.embedder.word_encoder.max_sub_len = get_max_sub_len(t_set)
     conf.model.num_labels = len(v_arc)
 
     # built_conf has all class representations instantiated

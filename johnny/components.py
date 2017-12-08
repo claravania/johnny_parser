@@ -145,6 +145,7 @@ class SentenceEncoder(chainer.Chain):
         corresponding to each word.
         """
         sents = in_seqs[0]
+
         # all sequences in in_seqs are assumed to have length corresponding
         # to in_seqs[0]
         # we add 1 because we are augmenting the sentence with a ROOT symbol
@@ -159,6 +160,7 @@ class SentenceEncoder(chainer.Chain):
         # batch). We assume the subword tokens are passed in a 3D array
         # as in_seqs[0] -> sentences x words in sentence x tokens in words
         if getattr(self.embedder, 'is_subword', False):
+
             # pad each word with START_WORD END_WORD
             sents = tuple(tuple(map(augment_word, s)) for s in sents)
 
@@ -172,13 +174,15 @@ class SentenceEncoder(chainer.Chain):
                              (reserved.ROOT,)])
             word_encoder = self.embedder.word_encoder
             word_encoder.encode_words(word_set)
+
             # replace 3D input with 2D - words replaced with hash
             fwd_first = tuple(tuple(map(word_encoder.word_to_index,
-                                        augment_seq_nested(s)))
-                              for s in sents)
+                                        augment_seq_nested(s))) for s in sents)
             fwd_rest = [self.transpose_batch(tuple(map(augment_seq, seq)))
                         for seq in in_seqs[1:]]
+
             fwd = [self.transpose_batch(fwd_first)]
+
             fwd.extend(fwd_rest)
         else:
             # we augment sequence here - augmenting with START, ROOT at the
@@ -243,6 +247,7 @@ class SentenceEncoder(chainer.Chain):
 
         mask_shape = (self.batch_size, self.max_seq_len)
         self.mask = self.xp.ones(mask_shape, dtype=self.xp.bool_)
+
         for i, l in enumerate(self.col_lengths):
             self.mask[l:, i] = False
 
@@ -253,10 +258,67 @@ class SentenceEncoder(chainer.Chain):
         # returns 2d (batch_size x max_sentence_length) x num_hidden
         return states
 
+    def attn_subword_embeds(self, units_dim, max_sub_len, *in_seqs):
+
+        sents = in_seqs[0]
+        
+        subword_embeddings = self.embedder.word_encoder.get_subword_embeddings()
+
+        # pad each word with START_WORD and END_WORD
+        sents = tuple(tuple(map(augment_word, s)) for s in sents)
+
+        # sentence lengths in the batch
+        sents_len = tuple(len(s) for s in sents)
+
+        # number of subword units for each word, for each sentence in the batch
+        # we need this for masking the attention vectors
+        sents_sub_len = []
+        for s in sents:
+            # first mask is for ROOT symbol
+            sent_sub_len = [self.xp.zeros((max_sub_len, ), dtype=self.xp.bool)]
+            for w in s:
+                seq = self.xp.array([1 if i < (len(w) - 1) and i != 0 else 0 for i in range(max_sub_len)], dtype=self.xp.bool)
+                sent_sub_len.append(seq)
+            sent_sub_len = F.pad_sequence(sent_sub_len, padding=0.)
+            sents_sub_len.append(sent_sub_len)
+
+        # sents_sub_len = self.xp.array([sents_sub_len])
+        sents_sub_len = F.pad_sequence(sents_sub_len, self.max_seq_len, padding=0.)
+        
+        # store the subword embeddings
+        # note that each word can have different length of units
+        # the number of units for all word in the same batch should be the same
+        # so we do padding based on the maximum number of units in the batch
+        # we store them in a 3d (batch_size x num_words x max_sub_len)
+        # we don't do padding for sentence length since we won't need it for the attention model
+        sents_embed = []
+        for sent in sents:
+            # the first is for ROOT morph features representation, we use zero vectors
+            embeds = [self.xp.zeros((max_sub_len, units_dim), dtype=self.xp.float32)]
+            for seq in sent:
+                seq_var = self.xp.array([item for item in seq], dtype=self.xp.int32)
+                # embedding lookup
+                seq_embed = subword_embeddings(seq_var)
+                # padding for different number of morphs per word 
+                # new shape: (max_sub_len x units_dim)
+                padded_seq_embed = F.pad(seq_embed, ((0, max_sub_len - seq_embed.shape[0]), (0, 0)), 'constant', constant_values=0.)
+                embeds.append(padded_seq_embed)
+            # padding for different sentence length
+            sent_embed = F.pad_sequence(embeds, padding=0.)
+
+            # print(sent_embed)
+            # pdb.set_trace()
+            sents_embed.append(sent_embed)
+
+
+        sents_embed = F.pad_sequence(sents_embed, self.max_seq_len, padding=0.)
+
+        return sents_embed, sents_len, sents_sub_len
+
 
 class LSTMWordEncoder(chainer.Chain):
 
-    def __init__(self, vocab_size, num_units, num_layers,
+    def __init__(self, vocab_size, max_sub_len, num_units, num_layers,
                  inp_dropout=0.2, rec_dropout=0.2, use_bilstm=True):
 
         super(LSTMWordEncoder, self).__init__()
@@ -269,6 +331,7 @@ class LSTMWordEncoder(chainer.Chain):
                                                    rec_dropout,
                                                    use_bi_direction=use_bilstm)
         self.vocab_size = vocab_size
+        self.max_sub_len = max_sub_len
         self.num_units = num_units
         self.num_layers = num_layers
         self.rec_dropout = rec_dropout
@@ -287,13 +350,17 @@ class LSTMWordEncoder(chainer.Chain):
 
         word_vars = [chainer.Variable(self.xp.array(w, dtype=self.xp.int32))
                                       for w in word_list]
+
+        # embeddings is the subword embeddings
         embeddings = self.embed_layer(F.concat(word_vars, axis=0))
+        
 
         if self.inp_dropout > 0.:
             embeddings = F.dropout(embeddings, ratio=self.inp_dropout)
 
         # split back to batch size
         batch_embeddings = F.split_axis(embeddings, batch_split, axis=0)
+
         _, _, hs = self.rnn(None, None, batch_embeddings)
         self.embedding = F.vstack([h[-1] for h in hs])
 
@@ -302,6 +369,9 @@ class LSTMWordEncoder(chainer.Chain):
 
     def word_to_index(self, word):
         return self.cache[tuple(word)]
+
+    def get_subword_embeddings(self):
+        return self.embed_layer
 
     def clear_cache(self):
         self.cache = dict()

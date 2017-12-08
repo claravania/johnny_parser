@@ -26,7 +26,8 @@ model:
         _module: johnny.components
         _classname: LSTMWordEncoder
         vocab_size: dunno
-        num_units: 200
+        max_sub_len: dunno
+        num_units: 100
         num_layers: 1
         rec_dropout: 0.6
         inp_dropout: 0.2
@@ -44,6 +45,7 @@ model:
   lbl_dropout: 0.6
   num_labels: dunno
   treeify: none
+  sub_attn: false
 optimizer:
   grad_clip: 5
   learning_rate: 0.001
