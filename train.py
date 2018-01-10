@@ -54,8 +54,8 @@ def to_ngrams(word, n=1):
     return tuple(word[i:i+n] for i in range(len(word)-n+1))
 
 
-def to_morphs(lemma, morphs, in_feats):
-    feat_bundle = [lemma.lower()]
+def to_morphs(lemma, upostags, morphs, in_feats):
+    feat_bundle = [lemma.lower(), upostags]
     for m in morphs:
         tag, value = m.split('=')
         if tag in in_feats:
@@ -67,9 +67,9 @@ def get_max_sub_len(t_set):
     max_sub_len = 0
     morph_tags = MorphTags()
     in_feats = morph_tags.get_tags()
-    for s1, s2 in zip(t_set.lemmas, t_set.feats):
-        for l, feats in zip(s1, s2):
-            sub_len = len(to_morphs(l, feats, in_feats)) + 2  # add 2 for start and end symbols
+    for s1, s2, s3 in zip(t_set.lemmas, t_set.upostags, t_set.feats):
+        for l, upostags, feats in zip(s1, s2, s3):
+            sub_len = len(to_morphs(l, upostags, feats, in_feats)) + 2  # add 2 for start and end symbols
             if sub_len > max_sub_len:
                 max_sub_len = sub_len
     return max_sub_len
@@ -86,9 +86,9 @@ def create_vocabs(t_set, conf):
         # morph unit
         morph_tags = MorphTags()
         in_feats = morph_tags.get_tags()
-        t_tokens = (chain.from_iterable(to_morphs(l, feats, in_feats)
-                for l, feats in zip(s1, s2)) 
-                for s1, s2 in zip(t_set.lemmas, t_set.feats))
+        t_tokens = (chain.from_iterable(to_morphs(l, upostags, feats, in_feats)
+                for l, upostags, feats in zip(s1, s2, s3)) 
+                for s1, s2, s3 in zip(t_set.lemmas, t_set.upostags, t_set.feats))
     else:
         # character unit
         t_tokens = (chain.from_iterable(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram)
@@ -123,9 +123,9 @@ def data_to_rows(data, vocabs, conf):
     elif conf.ngram < 0:
         morph_tags = MorphTags()
         in_feats = morph_tags.get_tags()
-        words_indices = tuple(tuple(v.encode(to_morphs(l, feats, in_feats))
-                        for l, feats in zip(s1, s2))
-                        for s1, s2 in zip(data.lemmas, data.feats))
+        words_indices = tuple(tuple(v.encode(to_morphs(l, upostags, feats, in_feats))
+                        for l, upostags, feats in zip(s1, s2, s3))
+                        for s1, s2, s3 in zip(data.lemmas, data.upostags, data.feats))
     else:
         words_indices = tuple(tuple(v.encode(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram))
                         for w in s)

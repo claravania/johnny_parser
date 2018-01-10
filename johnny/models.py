@@ -165,7 +165,6 @@ class GraphParser(chainer.Chain):
         """For each token in the sentence predict which token in the sentence
         is its head."""
 
-        import pdb
         print_attn = True
 
         batch_size, max_sent_len, col_lengths = batch_stats
@@ -316,15 +315,13 @@ class GraphParser(chainer.Chain):
                 self.loss += head_loss
             sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
 
-        morph_heads = F.stack(morph_heads, axis=0)
-        morph_heads = F.transpose(morph_heads)
 
-        for dat in morph_heads.data:
-            print(dat)
-        # print(morph_heads.data)
-
-        # morph_heads = F.transpose(morph_heads, axes=(0, 1))
-        # print(morph_heads)
+        if print_attn:
+            morph_heads = F.stack(morph_heads, axis=0)
+            morph_heads = F.transpose(morph_heads)
+            for dat in morph_heads.data:
+                print(dat)
+        
         arcs = F.concat(sent_arcs, axis=2)
 
         return arcs
@@ -377,9 +374,6 @@ class GraphParser(chainer.Chain):
 
             lbls = self.V_lblT(UWl)
 
-            # print(lbls.shape)
-            # pdb.set_trace()
-
             # Calculate losses
             if calc_loss:
                 label_loss = F.sum(F.softmax_cross_entropy(lbls[:num_active], gold_labels[:num_active], reduce='no'))
@@ -424,7 +418,9 @@ class GraphParser(chainer.Chain):
                                                  reverse=True))
         sorted_inputs = list(zip(*sorted_batch))
 
-        print(perm_indices)
+        print_attn = False
+        if print_attn:
+            print(perm_indices)
 
         if calc_loss:
             sorted_heads = [heads[i] for i in perm_indices]
