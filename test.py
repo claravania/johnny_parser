@@ -16,9 +16,9 @@ def test_loop(bp, test_set):
         vocabs = pickle.load(pf)
 
     (v_word, v_pos, v_arcs) = vocabs
-    visualise_dict(v_word.index, num_items=20)
-    visualise_dict(v_pos.index, num_items=20)
-    visualise_dict(v_arcs.index, num_items=20)
+    # visualise_dict(v_word.index, num_items=20)
+    # visualise_dict(v_pos.index, num_items=20)
+    # visualise_dict(v_arcs.index, num_items=20)
 
     test_rows = data_to_rows(test_set, vocabs, bp)
     print(test_set)
