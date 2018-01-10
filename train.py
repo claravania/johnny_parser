@@ -178,8 +178,10 @@ def train_epoch(model, optimizer, buckets, data_size):
         mean_loss = Average()
         u_scorer = UAS()
         l_scorer = LAS()
+
         for batch in buckets:
             seqs = list(zip(*batch))
+
             label_batch = seqs.pop()
             head_batch = seqs.pop()
             arc_preds, lbl_preds = model(*seqs, heads=head_batch, labels=label_batch)
@@ -380,7 +382,7 @@ if __name__ == "__main__":
         conf.model.encoder.embedder.in_sizes = [len(v_pos)]
         if conf.ngram < 0:
             # for sub_attn model
-            # TODO: may need too for character model
+            # TODO: may need too for character model (but will be very slow!)
             conf.model.encoder.embedder.word_encoder.max_sub_len = get_max_sub_len(t_set)
     conf.model.num_labels = len(v_arc)
 

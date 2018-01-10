@@ -166,6 +166,7 @@ class GraphParser(chainer.Chain):
         is its head."""
 
         import pdb
+        print_attn = True
 
         batch_size, max_sent_len, col_lengths = batch_stats
 
@@ -212,8 +213,10 @@ class GraphParser(chainer.Chain):
         subword_embeds = F.reshape(subword_embeds, (-1, batch_size, self.units_dim*self.max_sub_len))
 
         sent_arcs = []
+        morph_heads = []
         # we start from 1 because we don't consider root
         for i in range(1, max_sent_len):
+
             num_active = col_lengths[i]
             # if we are calculating loss create truth variables
             if calc_loss:
@@ -237,20 +240,27 @@ class GraphParser(chainer.Chain):
 
             # we compute the attention for every possible head
             h_heads = []
-            for j in range(len(subword_embeds)):
+            attn_vectors = []
+            for j in range(max_sent_len):
+
                 # f_j is the morph features of h_j
                 f_j = subword_embeds[j]
                 h_j = h_arc[j]
+
                 # compute the attention vector
                 k = self.V_attn(f_j, h_i)
+                
                 # attention mask, shape is the same as k
                 attn_mask = Variable(self.xp.full(k.shape,
                                            self.MIN_PAD,
                                            dtype=self.xp.float32))
+
                 # NOTE that we also put mask to the start and end symbol of the subword unit sequence
                 cond = sub_lengths[j]
                 k = F.where(cond, k, attn_mask)
                 k = F.softmax(k, axis=1)
+
+                attn_vectors.append(k)
                 
                 # reshape k and f_j to compute m_j
                 k = F.reshape(k, (-1, 1))
@@ -260,12 +270,14 @@ class GraphParser(chainer.Chain):
                 m_j = f_j * k.data
                 m_j = F.reshape(m_j, (batch_size, self.max_sub_len, self.units_dim))
                 m_j = F.sum(m_j, axis=1)
+
                 
                 # compute gating function
                 g = F.sigmoid(self.W_glob(h_j) + self.W_loc(h_i))
                 z_j = g * h_j + (1 - g) * m_j
+
                 h_heads.append(z_j)
-                
+
             
             h_i = self.W_dependent(h_i)
 
@@ -279,8 +291,20 @@ class GraphParser(chainer.Chain):
                 arc_logit = F.dropout(arc_logit, ratio=self.arc_dropout)
 
             arc_logit = self.vT(arc_logit)
+
             arcs = F.swapaxes(F.reshape(arc_logit, (-1, batch_size)), 0, 1)
             arcs = F.where(mask, arcs, mask_vals)
+
+            if print_attn:
+                pred_arcs = F.softmax(arcs).data
+                head_idx = F.argmax(pred_arcs, 1)
+
+                max_feats = []
+                for bs in range(batch_size):
+                    h_idx = head_idx.data[bs]
+                    max_feats.append(F.argmax(attn_vectors[h_idx][bs], 0).data)
+                morph_heads.append(F.stack(max_feats, 0))
+
             # Calculate losses
             if calc_loss:
                 # we don't want to average out over seen words yet
@@ -291,12 +315,24 @@ class GraphParser(chainer.Chain):
                 head_loss = F.sum(F.softmax_cross_entropy(arcs[:num_active], gold_heads[:num_active], reduce='no'))
                 self.loss += head_loss
             sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
+
+        morph_heads = F.stack(morph_heads, axis=0)
+        morph_heads = F.transpose(morph_heads)
+
+        for dat in morph_heads.data:
+            print(dat)
+        # print(morph_heads.data)
+
+        # morph_heads = F.transpose(morph_heads, axes=(0, 1))
+        # print(morph_heads)
         arcs = F.concat(sent_arcs, axis=2)
+
         return arcs
 
     def _predict_labels(self, sent_states, pred_heads, gold_heads, batch_stats,
                         sorted_labels=None):
         """Predict the label for each of the arcs predicted in _predict_heads."""
+
         batch_size, max_sent_len, col_lengths = batch_stats
 
         calc_loss = sorted_labels is not None
@@ -318,8 +354,8 @@ class GraphParser(chainer.Chain):
             if calc_loss:
                 # i-1 because sentence has root appended to beginning
                 gold_labels = labels[i-1]
-
                 true_heads = gold_heads[i-1]
+
             arc_pred = pred_heads[i-1]
 
             # ================== LABEL PREDICTION ======================
@@ -333,12 +369,16 @@ class GraphParser(chainer.Chain):
 
             l_heads = u_lbl[head_indices, self.xp.arange(len(head_indices)), :]
             l_w = w_lbl[i][:num_active]
+
             UWl = F.reshape(F.tanh(l_heads + l_w), (-1, self.mlp_lbl_units))
 
             if self.lbl_dropout > 0.:
                 UWl = F.dropout(UWl, ratio=self.lbl_dropout)
 
             lbls = self.V_lblT(UWl)
+
+            # print(lbls.shape)
+            # pdb.set_trace()
 
             # Calculate losses
             if calc_loss:
@@ -383,6 +423,9 @@ class GraphParser(chainer.Chain):
                                                  key=lambda x: len(x[1][0]),
                                                  reverse=True))
         sorted_inputs = list(zip(*sorted_batch))
+
+        print(perm_indices)
+
         if calc_loss:
             sorted_heads = [heads[i] for i in perm_indices]
             sorted_labels = [labels[i] for i in perm_indices]
@@ -405,7 +448,6 @@ class GraphParser(chainer.Chain):
             gold_heads = None
 
         if self.sub_attn:
-            print('Max seq len:', self.encoder.max_seq_len)
             self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
             arcs = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
                 sorted_heads=gold_heads)
@@ -494,7 +536,8 @@ class GraphParser(chainer.Chain):
             self.arcs = self.arcs[inv_perm_indices]
             self.lbls = self.lbls[inv_perm_indices]
         # permute back to correct batch order
-        # arcs = arc_preds[inv_perm_indices]
+        # arcs = arc_preds[inv_perm_indices]        
+
         arcs = [arc_preds[i] for i in inv_perm_indices]
         lbls = lbls[inv_perm_indices]
 

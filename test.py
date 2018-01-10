@@ -16,14 +16,14 @@ def test_loop(bp, test_set):
         vocabs = pickle.load(pf)
 
     (v_word, v_pos, v_arcs) = vocabs
-    visualise_dict(v_word.index, num_items=20)
-    visualise_dict(v_pos.index, num_items=20)
-    visualise_dict(v_arcs.index, num_items=20)
+    # visualise_dict(v_word.index, num_items=20)
+    # visualise_dict(v_pos.index, num_items=20)
+    # visualise_dict(v_arcs.index, num_items=20)
 
     test_rows = data_to_rows(test_set, vocabs, bp)
-    print(test_set)
-    print(test_set[0][0])
-    print(test_set[-1][-1])
+    # print(test_set)
+    # print(test_set[0][0])
+    # print(test_set[-1][-1])
 
     v_arcs_rev_index = dict((val, key) for key, val in v_arcs.index.items())
     
@@ -33,9 +33,9 @@ def test_loop(bp, test_set):
     test_set.unset_heads()
     test_set.unset_labels()
 
-    print(test_set[0][0])
-    print(test_set[-1][-1])
-    print('test max seq len ', test_set.len_stats['max_sent_len'])
+    # print(test_set[0][0])
+    # print(test_set[-1][-1])
+    # print('test max seq len ', test_set.len_stats['max_sent_len'])
 
     built_bp = bp.build()
     model = built_bp.model
@@ -59,15 +59,29 @@ def test_loop(bp, test_set):
         # NOTE: test_mean_loss changes because it is averaged
         # across batches, so changing the number of batches affects it
         BATCH_SIZE = 256
+        # BATCH_SIZE = 5
+
+        batch_id = 0
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
             batch_size = 0
+            batch_id += 1
+
+            print('Batch:', batch_id)
+
             word_batch, pos_batch, head_batch, label_batch = zip(*batch)
+
             if UNLABELLED:
                 arc_preds, lbl_preds = model(word_batch, pos_batch,
                                              heads=None, labels=None)
             else:
                 arc_preds, lbl_preds = model(word_batch, pos_batch,
                                              heads=head_batch, labels=label_batch)
+
+            for it in range(len(word_batch)):
+                print(word_batch[it], ' ||| ', pos_batch[it], '|||', tuple(arc_preds[it]))
+
+            print()
+
             loss = model.loss
 
             loss_value = float(loss.data)
@@ -82,6 +96,7 @@ def test_loop(bp, test_set):
 
                 index += 1
                 batch_size += 1
+
             mean_loss(loss_value)
             out_str = tf_str.format(batch_size, mean_loss.score, u_scorer.score, l_scorer.score)
             pbar.set_description(out_str)
