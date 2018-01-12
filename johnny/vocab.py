@@ -138,6 +138,9 @@ class Vocab(object):
 
     def save_txt(self, filepath):
         with open(filepath, 'w') as f:
+            for key, value in sorted(RESERVED.items(), key=lambda x: x[1]):
+                f.write(str(value) + ' ' + key + '\n')
+            f.write(str(len(RESERVED)) + ' ' + 'UNK' + '\n')
             for key, value in sorted(self.index.items(), key=lambda x: x[1]):
                 f.write(str(value) + ' ' + key + '\n')
 
@@ -194,6 +197,11 @@ class UPOSVocab(object):
     def encode(self, tags):
         """tags : iterable of tags """
         return tuple(self.index[tag] for tag in tags)
+
+    def save_txt(self, filepath):
+        with open(filepath, 'w') as f:
+            for key, value in sorted(self.index.items(), key=lambda x: x[1]):
+                f.write(str(value) + ' ' + key + '\n')
 
 
 class UDepVocab(object):

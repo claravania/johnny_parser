@@ -5,6 +5,7 @@ ngram: -1
 max_epochs: 50
 batch_size: 32
 dev_batch_size: 256
+pos_morph: true
 vocab:
   size: 20000
   threshold: 1
@@ -45,7 +46,7 @@ model:
   lbl_dropout: 0.6
   num_labels: dunno
   treeify: none
-  sub_attn: false
+  sub_attn: true
 optimizer:
   grad_clip: 5
   learning_rate: 0.001

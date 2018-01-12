@@ -158,6 +158,7 @@ class GraphParser(chainer.Chain):
                 self.loss += head_loss
             sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
         arcs = F.concat(sent_arcs, axis=2)
+
         return arcs
 
 
@@ -248,6 +249,9 @@ class GraphParser(chainer.Chain):
 
                 # compute the attention vector
                 k = self.V_attn(f_j, h_i)
+
+                # or..
+                # k = self.V_attn(f_j, F.concat((h_i, h_j), axis=1))
                 
                 # attention mask, shape is the same as k
                 attn_mask = Variable(self.xp.full(k.shape,
@@ -260,6 +264,7 @@ class GraphParser(chainer.Chain):
                 k = F.softmax(k, axis=1)
 
                 attn_vectors.append(k)
+
                 
                 # reshape k and f_j to compute m_j
                 k = F.reshape(k, (-1, 1))
@@ -301,7 +306,13 @@ class GraphParser(chainer.Chain):
                 max_feats = []
                 for bs in range(batch_size):
                     h_idx = head_idx.data[bs]
+
+                    if F.argmax(attn_vectors[h_idx][bs], 0).data == 0:
+                        print(attn_vectors[h_idx][bs])
+                        print(F.argmax(attn_vectors[h_idx][bs], 0).data)
+                        print('*' * 100)
                     max_feats.append(F.argmax(attn_vectors[h_idx][bs], 0).data)
+                    
                 morph_heads.append(F.stack(max_feats, 0))
 
             # Calculate losses
@@ -315,13 +326,12 @@ class GraphParser(chainer.Chain):
                 self.loss += head_loss
             sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
 
-
         if print_attn:
             morph_heads = F.stack(morph_heads, axis=0)
             morph_heads = F.transpose(morph_heads)
             for dat in morph_heads.data:
                 print(dat)
-        
+
         arcs = F.concat(sent_arcs, axis=2)
 
         return arcs
