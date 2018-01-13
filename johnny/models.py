@@ -166,7 +166,7 @@ class GraphParser(chainer.Chain):
         """For each token in the sentence predict which token in the sentence
         is its head."""
 
-        print_attn = True
+        print_attn = False
 
         batch_size, max_sent_len, col_lengths = batch_stats
 

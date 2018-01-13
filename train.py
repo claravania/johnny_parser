@@ -63,17 +63,16 @@ def to_morphs(lemma, upostags, morphs, in_feats, pos_morph=False):
         tag, value = m.split('=')
         if tag in in_feats:
             feat_bundle.append(m)
-    print(feat_bundle)
     return tuple(feat_bundle)
 
 
-def get_max_sub_len(t_set):
+def get_max_sub_len(t_set, conf):
     max_sub_len = 0
     morph_tags = MorphTags()
     in_feats = morph_tags.get_tags()
     for s1, s2, s3 in zip(t_set.lemmas, t_set.upostags, t_set.feats):
         for l, upostags, feats in zip(s1, s2, s3):
-            sub_len = len(to_morphs(l, upostags, feats, in_feats)) + 2  # add 2 for start and end symbols
+            sub_len = len(to_morphs(l, upostags, feats, in_feats, conf.pos_morph)) + 2  # add 2 for start and end symbols
             if sub_len > max_sub_len:
                 max_sub_len = sub_len
     return max_sub_len
@@ -388,7 +387,7 @@ if __name__ == "__main__":
         if conf.ngram < 0:
             # for sub_attn model
             # TODO: may need too for character model (but will be very slow!)
-            conf.model.encoder.embedder.word_encoder.max_sub_len = get_max_sub_len(t_set)
+            conf.model.encoder.embedder.word_encoder.max_sub_len = get_max_sub_len(t_set, conf)
     conf.model.num_labels = len(v_arc)
 
     # built_conf has all class representations instantiated

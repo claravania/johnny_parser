@@ -59,7 +59,7 @@ def test_loop(bp, test_set):
         # NOTE: test_mean_loss changes because it is averaged
         # across batches, so changing the number of batches affects it
         BATCH_SIZE = 256
-        print_attn = True
+        print_attn = False
 
         batch_id = 0
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
