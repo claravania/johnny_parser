@@ -274,6 +274,11 @@ class UDepVocab(object):
         """tags : iterable of tags """
         return tuple(self.index[tag] for tag in tags)
 
+    def save_txt(self, filepath):
+        with open(filepath, 'w') as f:
+            for key, value in sorted(self.index.items(), key=lambda x: x[1]):
+                f.write(str(value) + ' ' + key + '\n')
+
 
 class AbstractVocab(object):
     """Used when we don't know what labels to expect"""

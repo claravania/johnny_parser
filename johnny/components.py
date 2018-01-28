@@ -280,11 +280,12 @@ class SentenceEncoder(chainer.Chain):
                 seq = self.xp.array([1 if i < (len(w) - 1) and i != 0 else 0 for i in range(max_sub_len)], dtype=self.xp.bool)
                 sent_sub_len.append(seq)
             sent_sub_len = F.pad_sequence(sent_sub_len, padding=0.)
+
             sents_sub_len.append(sent_sub_len)
 
         # sents_sub_len = self.xp.array([sents_sub_len])
         sents_sub_len = F.pad_sequence(sents_sub_len, self.max_seq_len, padding=0.)
-        
+    
         # store the subword embeddings
         # note that each word can have different length of units
         # the number of units for all word in the same batch should be the same
@@ -305,11 +306,7 @@ class SentenceEncoder(chainer.Chain):
                 embeds.append(padded_seq_embed)
             # padding for different sentence length
             sent_embed = F.pad_sequence(embeds, padding=0.)
-
-            # print(sent_embed)
-            # pdb.set_trace()
             sents_embed.append(sent_embed)
-
 
         sents_embed = F.pad_sequence(sents_embed, self.max_seq_len, padding=0.)
 
@@ -353,7 +350,6 @@ class LSTMWordEncoder(chainer.Chain):
 
         # embeddings is the subword embeddings
         embeddings = self.embed_layer(F.concat(word_vars, axis=0))
-        
 
         if self.inp_dropout > 0.:
             embeddings = F.dropout(embeddings, ratio=self.inp_dropout)

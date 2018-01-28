@@ -10,6 +10,9 @@ from johnny.extern import DependencyDecoder
 from johnny.vocab import UDepVocab
 
 
+import pdb
+
+
 # TODO Check multiple roots issue
 # TODO Check constraint algorithms + optimise
 # TODO Maybe switch to using predicted arcs towards end of training
@@ -75,6 +78,7 @@ class GraphParser(chainer.Chain):
                 # parameters for computing the scores
                 self.W_head = L.Linear(mlp_arc_units, mlp_arc_units)
                 self.W_dependent = L.Linear(mlp_arc_units, mlp_arc_units)
+                self.U_lbl_attn = L.Linear(mlp_arc_units, mlp_lbl_units)
                 
             self.V_lblT = L.Linear(mlp_lbl_units, self.num_labels)
             self.U_lbl = L.Linear(self.unit_mult*self.encoder.num_units, mlp_lbl_units)
@@ -162,180 +166,6 @@ class GraphParser(chainer.Chain):
         return arcs
 
 
-    def _predict_heads_attn(self, sent_states, subword_embeds, mask, sub_lengths, batch_stats, sorted_heads=None):
-        """For each token in the sentence predict which token in the sentence
-        is its head."""
-
-        print_attn = False
-
-        batch_size, max_sent_len, col_lengths = batch_stats
-
-        calc_loss = sorted_heads is not None
-
-        # In order to predict which head is most probable for a given word
-        # For each token in the sentence we get a vector represention
-        # for that token as a head, and another for that token as a dependent.
-        # The idea here is that we only need to calculate these once
-        # and then reuse them to get all combinations
-        # ------------------------------------------------------
-        # In g(a_j, a_i) we note that we can precompute the matrix multiplications
-        # for each word, we consider all possible heads
-        # we can pre-calculate U * a_j , for all a_j
-        # head activations for each token lstm activation
-        # bs * max_sent x mlp_arc_units
-        h_arc = self.H_arc(sent_states)
-
-        # we transform results to be indexable by sentence index for upcoming for loop
-        # h_arc is now max_sent x bs x mlp_arc_units
-        h_arc = F.reshape(h_arc, (-1, batch_size, self.mlp_arc_units))
-
-        # bs * max_sent x mlp_arc_units
-        d_arc = self.D_arc(sent_states)
-
-        # max_sent x bs x mlp_arc_units
-        d_arc = F.reshape(d_arc, (-1, batch_size, self.mlp_arc_units))
-
-        # the values to use to mask softmax for head prediction
-        # e ^ -100 is ~ zero (can be changed from self.MIN_PAD)
-        mask_vals = Variable(self.xp.full((batch_size, max_sent_len),
-                                           self.MIN_PAD,
-                                           dtype=self.xp.float32))
-
-
-        # reshape sent_states and sub_lengths for attention computation
-        # max_sent_len x bs x self.unit_mult*self.encoder.num_units
-        # sent_states = F.reshape(sent_states, (-1, batch_size, self.unit_mult*self.encoder.num_units))
-        sub_lengths = F.swapaxes(sub_lengths, axis1=0, axis2=1)
-
-        # subword_embeds shape is bs x max_sen x max_sub_len x units_dim
-        # reshape subword embeds to compute attention
-        # max_sent x bs x units_dim*max_sub_len
-        subword_embeds = F.reshape(subword_embeds, (-1, batch_size, self.units_dim*self.max_sub_len))
-
-        sent_arcs = []
-        morph_heads = []
-        # we start from 1 because we don't consider root
-        for i in range(1, max_sent_len):
-
-            num_active = col_lengths[i]
-            # if we are calculating loss create truth variables
-            if calc_loss:
-                # i-1 because sentence has root appended to beginning
-                gold_heads = sorted_heads[i-1]
-            # ================== HEAD PREDICTION ======================
-            # NOTE Because some sentences may be shorter - only num_active of
-            # the batch have valid activations for this token. If in softmax
-            # we didn't limit arcs to [:num_active] we would need to replace
-            # embeddings that are out of sentence range with zeros - because
-            # otherwise when broadcasting and summing we will modify valid
-            # batch activations for earlier tokens of the sentence.
-            # ====================== Code for padding ==========================
-            # invalid_pad = ((0, int(batch_size - num_active)), (0, 0))
-            # d_arc_pad = F.pad(d_arc[i][:num_active],
-            #                   invalid_pad, 'constant', constant_values=0.)
-            # ==================================================================
-
-            # h_i is the current word and h_j is the candidate head
-            h_i = d_arc[i]
-
-            # we compute the attention for every possible head
-            h_heads = []
-            attn_vectors = []
-            for j in range(max_sent_len):
-
-                # f_j is the morph features of h_j
-                f_j = subword_embeds[j]
-                h_j = h_arc[j]
-
-                # compute the attention vector
-                k = self.V_attn(f_j, h_i)
-
-                # or..
-                # k = self.V_attn(f_j, F.concat((h_i, h_j), axis=1))
-                
-                # attention mask, shape is the same as k
-                attn_mask = Variable(self.xp.full(k.shape,
-                                           self.MIN_PAD,
-                                           dtype=self.xp.float32))
-
-                # NOTE that we also put mask to the start and end symbol of the subword unit sequence
-                cond = sub_lengths[j]
-                k = F.where(cond, k, attn_mask)
-                k = F.softmax(k, axis=1)
-
-                attn_vectors.append(k)
-
-                
-                # reshape k and f_j to compute m_j
-                k = F.reshape(k, (-1, 1))
-                f_j = F.reshape(f_j, (-1, self.units_dim))
-
-                # compute m_j
-                m_j = f_j * k.data
-                m_j = F.reshape(m_j, (batch_size, self.max_sub_len, self.units_dim))
-                m_j = F.sum(m_j, axis=1)
-
-                
-                # compute gating function
-                g = F.sigmoid(self.W_glob(h_j) + self.W_loc(h_i))
-                z_j = g * h_j + (1 - g) * m_j
-
-                h_heads.append(z_j)
-
-            
-            h_i = self.W_dependent(h_i)
-
-            h_heads = self.W_head(F.reshape(F.stack(h_heads, axis=0), (-1, self.mlp_arc_units)))
-            h_heads = F.reshape(h_heads, (-1, batch_size, self.mlp_arc_units))
-
-            a_u, a_w = F.broadcast(h_heads, h_i)
-            arc_logit = F.reshape(F.tanh(a_u + a_w), (-1, self.mlp_arc_units))
-
-            if self.arc_dropout > 0.:
-                arc_logit = F.dropout(arc_logit, ratio=self.arc_dropout)
-
-            arc_logit = self.vT(arc_logit)
-
-            arcs = F.swapaxes(F.reshape(arc_logit, (-1, batch_size)), 0, 1)
-            arcs = F.where(mask, arcs, mask_vals)
-
-            if print_attn:
-                pred_arcs = F.softmax(arcs).data
-                head_idx = F.argmax(pred_arcs, 1)
-
-                max_feats = []
-                for bs in range(batch_size):
-                    h_idx = head_idx.data[bs]
-
-                    if F.argmax(attn_vectors[h_idx][bs], 0).data == 0:
-                        print(attn_vectors[h_idx][bs])
-                        print(F.argmax(attn_vectors[h_idx][bs], 0).data)
-                        print('*' * 100)
-                    max_feats.append(F.argmax(attn_vectors[h_idx][bs], 0).data)
-                    
-                morph_heads.append(F.stack(max_feats, 0))
-
-            # Calculate losses
-            if calc_loss:
-                # we don't want to average out over seen words yet
-                # NOTE: do not use ignore_label - in gpu mode gold_heads gets mutated
-                # and furthermore we would need to have padded invalid state of
-                # d_arc[i] with zeros before broadcasting. 
-                # see NOTE above
-                head_loss = F.sum(F.softmax_cross_entropy(arcs[:num_active], gold_heads[:num_active], reduce='no'))
-                self.loss += head_loss
-            sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
-
-        if print_attn:
-            morph_heads = F.stack(morph_heads, axis=0)
-            morph_heads = F.transpose(morph_heads)
-            for dat in morph_heads.data:
-                print(dat)
-
-        arcs = F.concat(sent_arcs, axis=2)
-
-        return arcs
-
     def _predict_labels(self, sent_states, pred_heads, gold_heads, batch_stats,
                         sorted_labels=None):
         """Predict the label for each of the arcs predicted in _predict_heads."""
@@ -397,6 +227,258 @@ class GraphParser(chainer.Chain):
         return lbls
 
 
+    def _predict_heads_attn(self, sent_states, subword_embeds, mask, sub_lengths, batch_stats, sorted_heads=None):
+        """For each token in the sentence predict which token in the sentence
+        is its head."""
+
+        # sub_lengths is the mask for morph embeddings -- refer to the subword lengths
+        # start and end word are masked
+
+        print_attn = False
+
+        batch_size, max_sent_len, col_lengths = batch_stats
+
+        calc_loss = sorted_heads is not None
+
+        # In order to predict which head is most probable for a given word
+        # For each token in the sentence we get a vector represention
+        # for that token as a head, and another for that token as a dependent.
+        # The idea here is that we only need to calculate these once
+        # and then reuse them to get all combinations
+        # ------------------------------------------------------
+        # In g(a_j, a_i) we note that we can precompute the matrix multiplications
+        # for each word, we consider all possible heads
+        # we can pre-calculate U * a_j , for all a_j
+        # head activations for each token lstm activation
+        # bs * max_sent x mlp_arc_units
+        h_arc = self.H_arc(sent_states)
+
+        # we transform results to be indexable by sentence index for upcoming for loop
+        # h_arc is now max_sent x bs x mlp_arc_units
+        h_arc = F.reshape(h_arc, (-1, batch_size, self.mlp_arc_units))
+
+        # bs * max_sent x mlp_arc_units
+        d_arc = self.D_arc(sent_states)
+
+        # max_sent x bs x mlp_arc_units
+        d_arc = F.reshape(d_arc, (-1, batch_size, self.mlp_arc_units))
+
+        # the values to use to mask softmax for head prediction
+        # e ^ -100 is ~ zero (can be changed from self.MIN_PAD)
+        mask_vals = Variable(self.xp.full((batch_size, max_sent_len),
+                                           self.MIN_PAD,
+                                           dtype=self.xp.float32))
+
+
+        # reshape sub_lengths for attention computation
+        # max_sent_len x bs x self.unit_mult*self.encoder.num_units
+        sub_lengths = F.swapaxes(sub_lengths, axis1=0, axis2=1)
+
+        # subword_embeds shape is bs x max_sen x max_sub_len x units_dim
+        # reshape subword embeds to compute attention
+        # max_sent x bs x units_dim*max_sub_len
+        subword_embeds = F.reshape(subword_embeds, (-1, batch_size, self.units_dim*self.max_sub_len))  
+
+        sent_arcs = []
+        morph_heads = []
+        sent_h_heads = []
+
+        # we start from 1 because we don't consider root
+        for i in range(1, max_sent_len):
+
+            num_active = col_lengths[i]
+            # if we are calculating loss create truth variables
+            if calc_loss:
+                # i-1 because sentence has root appended to beginning
+                gold_heads = sorted_heads[i-1]
+            # ================== HEAD PREDICTION ======================
+            # NOTE Because some sentences may be shorter - only num_active of
+            # the batch have valid activations for this token. If in softmax
+            # we didn't limit arcs to [:num_active] we would need to replace
+            # embeddings that are out of sentence range with zeros - because
+            # otherwise when broadcasting and summing we will modify valid
+            # batch activations for earlier tokens of the sentence.
+            # ====================== Code for padding ==========================
+            # invalid_pad = ((0, int(batch_size - num_active)), (0, 0))
+            # d_arc_pad = F.pad(d_arc[i][:num_active],
+            #                   invalid_pad, 'constant', constant_values=0.)
+            # ==================================================================
+
+            # h_i is the current word and h_j is the candidate head
+            h_i = d_arc[i]
+
+            # we compute the attention for every possible head
+            h_heads = []
+            attn_vectors = []
+
+            # now, we start from 0 because we consider ROOT as head
+            for j in range(max_sent_len):
+
+                # f_j is the morph features of h_j
+                f_j = subword_embeds[j]
+                h_j = h_arc[j]
+
+                # compute the attention vector
+                k = self.V_attn(f_j, h_i)
+
+                # or.. (another option)
+                # k = self.V_attn(f_j, F.concat((h_i, h_j), axis=1))
+                
+                # attention mask, shape is the same as k
+                attn_mask = Variable(self.xp.full(k.shape,
+                                           self.MIN_PAD,
+                                           dtype=self.xp.float32))
+
+                # NOTE that we also put mask to the start and end symbol of the subword unit sequence
+                cond = sub_lengths[j]
+                k = F.where(cond, k, attn_mask)
+                k = F.softmax(k, axis=1)
+
+                attn_vectors.append(k)
+                
+                # reshape k and f_j to compute m_j
+                k = F.reshape(k, (-1, 1))
+                f_j = F.reshape(f_j, (-1, self.units_dim))
+
+                # compute m_j
+                m_j = f_j * k.data
+                m_j = F.reshape(m_j, (batch_size, self.max_sub_len, self.units_dim))
+                m_j = F.sum(m_j, axis=1)
+
+                
+                # compute gating function
+                g = F.sigmoid(self.W_glob(h_j) + self.W_loc(h_i))
+                z_j = g * h_j + (1 - g) * m_j
+
+                h_heads.append(z_j)
+
+            
+            # h_i = self.W_dependent(h_i)
+
+            h_heads = F.reshape(F.stack(h_heads, axis=0), (-1, self.mlp_arc_units))
+            h_heads = F.reshape(h_heads, (-1, batch_size, self.mlp_arc_units))
+            sent_h_heads.append(h_heads)
+
+            a_u, a_w = F.broadcast(h_heads, h_i)
+
+            arc_logit = F.reshape(F.tanh(a_u + a_w), (-1, self.mlp_arc_units))
+
+            if self.arc_dropout > 0.:
+                arc_logit = F.dropout(arc_logit, ratio=self.arc_dropout)
+
+            arc_logit = self.vT(arc_logit)
+            
+            arcs = F.swapaxes(F.reshape(arc_logit, (-1, batch_size)), 0, 1)            
+            arcs = F.where(mask, arcs, mask_vals)
+
+            if print_attn:
+                pred_arcs = F.softmax(arcs).data
+                head_idx = F.argmax(pred_arcs, 1)
+
+                max_feats = []
+                for bs in range(batch_size):
+                    h_idx = head_idx.data[bs]
+                    if F.argmax(attn_vectors[h_idx][bs], 0).data == 0:
+                        print(attn_vectors[h_idx][bs])
+                        print(F.argmax(attn_vectors[h_idx][bs], 0).data)
+                        print('*' * 100)
+                    max_feats.append(F.argmax(attn_vectors[h_idx][bs], 0).data)
+                    
+                morph_heads.append(F.stack(max_feats, 0))
+
+            # Calculate losses
+            if calc_loss:
+                # we don't want to average out over seen words yet
+                # NOTE: do not use ignore_label - in gpu mode gold_heads gets mutated
+                # and furthermore we would need to have padded invalid state of
+                # d_arc[i] with zeros before broadcasting. 
+                # see NOTE above
+                head_loss = F.sum(F.softmax_cross_entropy(arcs[:num_active], gold_heads[:num_active], reduce='no'))
+                self.loss += head_loss
+
+            sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
+
+        if print_attn:
+            morph_heads = F.stack(morph_heads, axis=0)
+            morph_heads = F.transpose(morph_heads)
+            for dat in morph_heads.data:
+                print(dat)
+
+        arcs = F.concat(sent_arcs, axis=2)
+
+        # sent_h_heads store the morphological representations
+        # for each possible heads, for each dependent word
+        # max_sent_len - 1 (num of dep) x max_sent_len (num of possible heads) x bs x mlp_arc_units
+        # in other words, each word has different views/representation of its possible heads 
+        sent_h_heads = F.stack(sent_h_heads, axis=0)
+
+        return arcs, sent_h_heads
+
+
+    def _predict_labels_attn(self, sent_states, pred_heads, pred_reps, gold_heads, batch_stats,
+                        sorted_labels=None):
+        """Predict the label for each of the arcs predicted in _predict_heads."""
+
+        batch_size, max_sent_len, col_lengths = batch_stats
+
+        calc_loss = sorted_labels is not None
+        if calc_loss:
+            labels = self.encoder.transpose_batch(sorted_labels)
+
+        u_lbl = self.U_lbl(sent_states)
+        u_lbl = F.reshape(u_lbl, (-1, batch_size, self.mlp_lbl_units))
+
+        w_lbl = self.W_lbl(sent_states)
+        w_lbl = F.reshape(w_lbl, (-1, batch_size, self.mlp_lbl_units))
+
+        sent_lbls = []
+        # we start from 1 because we don't consider root
+        for i in range(1, max_sent_len):
+            # num_active
+            num_active = col_lengths[i]
+            # if we are calculating loss create truth variables
+            if calc_loss:
+                # i-1 because sentence has root appended to beginning
+                gold_labels = labels[i-1]
+                true_heads = gold_heads[i-1]
+
+            arc_pred = pred_heads[i-1]
+            head_reps = pred_reps[i-1]
+
+            # ================== LABEL PREDICTION ======================
+            # TODO: maybe we should use arc_pred sometimes in training??
+            # NOTE: gold_heads values after num_active gets mutated here
+            # make sure you don't use ignore_label in softmax - even if ok in forward
+            # it will be wrong in backprop (we limit to :self.num_active)
+            # gh_copy = self.xp.copy(gold_heads.data)
+            head_indices = true_heads.data if chainer.config.train else arc_pred
+            head_indices = head_indices[:num_active]
+
+            l_heads = head_reps[head_indices, self.xp.arange(len(head_indices)), :]
+            l_heads = self.U_lbl_attn(l_heads)
+            l_w = w_lbl[i][:num_active]
+
+            UWl = F.reshape(F.tanh(l_heads + l_w), (-1, self.mlp_lbl_units))
+
+            if self.lbl_dropout > 0.:
+                UWl = F.dropout(UWl, ratio=self.lbl_dropout)
+
+            lbls = self.V_lblT(UWl)
+
+            # Calculate losses
+            if calc_loss:
+                label_loss = F.sum(F.softmax_cross_entropy(lbls[:num_active], gold_labels[:num_active], reduce='no'))
+                self.loss += label_loss
+
+            reshaped_lbls = F.reshape(lbls, (num_active, -1, 1))
+            reshaped_lbls = F.pad(reshaped_lbls,
+                    ((0, batch_size - num_active),(0,0), (0,0)), 'constant')
+            sent_lbls.append(reshaped_lbls)
+        lbls = F.concat(sent_lbls, axis=2)
+
+        return lbls
+
+
     def __call__(self, *inputs, **kwargs):
         """ Expects a batch of sentences 
         so a list of K sentences where each sentence
@@ -455,7 +537,7 @@ class GraphParser(chainer.Chain):
 
         if self.sub_attn:
             self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
-            arcs = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
+            arcs, p_reps = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
                 sorted_heads=gold_heads)
         else:
             arcs = self._predict_heads(comb_states_2d, self.encoder.mask, batch_stats,
@@ -506,8 +588,13 @@ class GraphParser(chainer.Chain):
             arc_preds = cuda.to_cpu(p_arcs)
             p_arcs = np.swapaxes(p_arcs, 0, 1)
 
-        lbls = self._predict_labels(comb_states_2d, p_arcs, gold_heads,
-                batch_stats, sorted_labels=sorted_labels)
+
+        if self.sub_attn:
+            lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, gold_heads,
+                    batch_stats, sorted_labels=sorted_labels)
+        else:
+            lbls = self._predict_labels(comb_states_2d, p_arcs, gold_heads,
+                    batch_stats, sorted_labels=sorted_labels)
 
         if self.debug or self.visualise:
             self.lbls = cuda.to_cpu(F.softmax(lbls).data)
