@@ -353,9 +353,9 @@ class GraphParser(chainer.Chain):
                 h_heads.append(z_j)
 
             
-            # h_i = self.W_dependent(h_i)
+            h_i = self.W_dependent(h_i)
 
-            h_heads = F.reshape(F.stack(h_heads, axis=0), (-1, self.mlp_arc_units))
+            h_heads = self.W_head(F.reshape(F.stack(h_heads, axis=0), (-1, self.mlp_arc_units)))
             h_heads = F.reshape(h_heads, (-1, batch_size, self.mlp_arc_units))
             sent_h_heads.append(h_heads)
 
