@@ -17,7 +17,6 @@ import johnny.preprocess as pp
 
 np.set_printoptions(precision=5, suppress=True)
 
-
 def seed_chainer(seed, gpu_id):
     np.random.seed(seed)
     if gpu_id >= 0:

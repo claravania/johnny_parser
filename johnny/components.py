@@ -275,9 +275,9 @@ class SentenceEncoder(chainer.Chain):
         sents_sub_len = []
         for s in sents:
             # first mask is for ROOT symbol
-            sent_sub_len = [self.xp.zeros((max_sub_len, ), dtype=self.xp.bool)]
+            sent_sub_len = [self.xp.zeros((max_sub_len, ), dtype=self.xp.bool_)]
             for w in s:
-                seq = self.xp.array([1 if i < (len(w) - 1) and i != 0 else 0 for i in range(max_sub_len)], dtype=self.xp.bool)
+                seq = self.xp.array([1 if i < (len(w) - 1) and i != 0 else 0 for i in range(max_sub_len)], dtype=self.xp.bool_)
                 sent_sub_len.append(seq)
             sent_sub_len = F.pad_sequence(sent_sub_len, padding=0.)
 

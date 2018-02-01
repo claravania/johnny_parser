@@ -16,14 +16,8 @@ def test_loop(bp, test_set):
         vocabs = pickle.load(pf)
 
     (v_word, v_pos, v_arcs) = vocabs
-    # visualise_dict(v_word.index, num_items=20)
-    # visualise_dict(v_pos.index, num_items=20)
-    # visualise_dict(v_arcs.index, num_items=20)
 
     test_rows = data_to_rows(test_set, vocabs, bp)
-    # print(test_set)
-    # print(test_set[0][0])
-    # print(test_set[-1][-1])
 
     v_arcs_rev_index = dict((val, key) for key, val in v_arcs.index.items())
     
@@ -33,12 +27,11 @@ def test_loop(bp, test_set):
     test_set.unset_heads()
     test_set.unset_labels()
 
-    # print(test_set[0][0])
-    # print(test_set[-1][-1])
-    # print('test max seq len ', test_set.len_stats['max_sent_len'])
-
     built_bp = bp.build()
     model = built_bp.model
+    
+    if bp.gpu_id >= 0:
+        model.to_gpu(bp.gpu_id)
     chainer.serializers.load_npz(model_path, model)
 
     # test
