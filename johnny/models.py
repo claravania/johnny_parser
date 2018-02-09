@@ -238,6 +238,8 @@ class GraphParser(chainer.Chain):
 
         calc_loss = sorted_heads is not None
 
+        extract_attn = True
+
         # In order to predict which head is most probable for a given word
         # For each token in the sentence we get a vector represention
         # for that token as a head, and another for that token as a dependent.
@@ -279,7 +281,6 @@ class GraphParser(chainer.Chain):
 
         sent_arcs = []
         sent_attn_vectors = []
-        morph_heads = []
         sent_h_heads = []
 
         # we start from 1 because we don't consider root
@@ -393,10 +394,10 @@ class GraphParser(chainer.Chain):
         # in other words, each word has different views/representation of its possible heads 
         sent_h_heads = F.stack(sent_h_heads, axis=0)
 
-        return arcs, sent_h_heads, sent_attn_vectors, sub_lengths
+        return arcs, sent_h_heads, sent_attn_vectors
 
 
-    def _predict_labels_attn(self, sent_states, pred_heads, pred_reps, sent_attn_vectors, sub_masks, gold_heads, batch_stats,
+    def _predict_labels_attn(self, sent_states, pred_heads, pred_reps, sent_attn_vectors, gold_heads, batch_stats,
                         sorted_labels=None):
         """Predict the label for each of the arcs predicted in _predict_heads."""
 
@@ -437,7 +438,6 @@ class GraphParser(chainer.Chain):
                 for bs in range(batch_size):
                     if bs < true_bs:
                         head_idx = cuda.to_cpu(arc_pred[bs])
-                        mask_val = sub_masks[head_idx][bs]
                         attn_matrix = sent_attn_vectors[i-1][head_idx]
                         max_feat = F.argmax(attn_matrix[bs], 0).data
                         max_feats.append(max_feat)
@@ -478,6 +478,7 @@ class GraphParser(chainer.Chain):
         lbls = F.concat(sent_lbls, axis=2)
 
         if extract_attn:
+            print('Attention vectors:')
             morph_heads = F.stack(morph_heads, axis=0)
             morph_heads = F.transpose(morph_heads)
             for dat in morph_heads.data:
@@ -519,6 +520,7 @@ class GraphParser(chainer.Chain):
 
         extract_attn = True
         if extract_attn:
+            print('Permutation indices:')
             print(perm_indices)
 
         if calc_loss:
@@ -544,7 +546,7 @@ class GraphParser(chainer.Chain):
 
         if self.sub_attn:
             self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
-            arcs, p_reps, sent_attn_vectors, sub_masks = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
+            arcs, p_reps, sent_attn_vectors = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
                 sorted_heads=gold_heads)
         else:
             arcs = self._predict_heads(comb_states_2d, self.encoder.mask, batch_stats,
@@ -552,6 +554,11 @@ class GraphParser(chainer.Chain):
 
         if self.debug or self.visualise:
             self.arcs = cuda.to_cpu(F.softmax(arcs).data)
+
+        if extract_attn:
+            u_arcs = arcs.data
+            u_p_arcs = self.xp.argmax(u_arcs, axis=1)
+            u_arc_preds = cuda.to_cpu(u_p_arcs)
 
         if self.treeify != 'none':
             # TODO: check multiple roots issue
@@ -597,7 +604,7 @@ class GraphParser(chainer.Chain):
 
 
         if self.sub_attn:
-            lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, sent_attn_vectors, sub_masks, gold_heads,
+            lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, sent_attn_vectors, gold_heads,
                     batch_stats, sorted_labels=sorted_labels)
         else:
             lbls = self._predict_labels(comb_states_2d, p_arcs, gold_heads,
@@ -647,6 +654,13 @@ class GraphParser(chainer.Chain):
 
         arc_preds = [arc_p[:l] for arc_p, l in zip(arcs, input_sent_lengths)]
         lbl_preds = [lbl_p[:l] for lbl_p, l in zip(lbl_preds, input_sent_lengths)]
+
+        if extract_attn:
+            print('Unlabeled head predictions:')
+            u_arcs = [u_arc_preds[i] for i in inv_perm_indices]
+            u_arc_preds = [arc_p[:l] for arc_p, l in zip(u_arcs, input_sent_lengths)]
+            for u_pred in u_arc_preds:
+                print(u_pred)
 
         return arc_preds, lbl_preds
 
