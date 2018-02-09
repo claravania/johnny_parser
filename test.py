@@ -76,6 +76,7 @@ def test_loop(bp, test_set):
                                              heads=head_batch, labels=label_batch)
 
             if extract_attn:
+                print('Data:')
                 for it in range(len(word_batch)):
                     print(word_batch[it], ' ||| ', pos_batch[it], '|||', tuple(arc_preds[it]), '|||', 
                         tuple(lbl_preds[it]), ' ||| ', head_batch[it], ' ||| ', label_batch[it])
