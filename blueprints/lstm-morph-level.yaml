@@ -5,7 +5,7 @@ ngram: -1
 max_epochs: 50
 batch_size: 32
 dev_batch_size: 256
-pos_morph: true
+pos_morph: false
 vocab:
   size: 20000
   threshold: 1

@@ -234,8 +234,6 @@ class GraphParser(chainer.Chain):
         # sub_lengths is the mask for morph embeddings -- refer to the subword lengths
         # start and end word are masked
 
-        print_attn = False
-
         batch_size, max_sent_len, col_lengths = batch_stats
 
         calc_loss = sorted_heads is not None
@@ -280,6 +278,7 @@ class GraphParser(chainer.Chain):
         subword_embeds = F.reshape(subword_embeds, (-1, batch_size, self.units_dim*self.max_sub_len))  
 
         sent_arcs = []
+        sent_attn_vectors = []
         morph_heads = []
         sent_h_heads = []
 
@@ -352,6 +351,9 @@ class GraphParser(chainer.Chain):
 
                 h_heads.append(z_j)
 
+            # sent_attn_vectors store the attention vectors for each dependent word in the batch
+            # max_sent_len - 1 (because we don't consider root) x max_sent_len x bs x num of morph features
+            sent_attn_vectors.append(attn_vectors)
             
             h_i = self.W_dependent(h_i)
 
@@ -371,21 +373,6 @@ class GraphParser(chainer.Chain):
             arcs = F.swapaxes(F.reshape(arc_logit, (-1, batch_size)), 0, 1)            
             arcs = F.where(mask, arcs, mask_vals)
 
-            if print_attn:
-                pred_arcs = F.softmax(arcs).data
-                head_idx = F.argmax(pred_arcs, 1)
-
-                max_feats = []
-                for bs in range(batch_size):
-                    h_idx = head_idx.data[bs]
-                    if F.argmax(attn_vectors[h_idx][bs], 0).data == 0:
-                        print(attn_vectors[h_idx][bs])
-                        print(F.argmax(attn_vectors[h_idx][bs], 0).data)
-                        print('*' * 100)
-                    max_feats.append(F.argmax(attn_vectors[h_idx][bs], 0).data)
-                    
-                morph_heads.append(F.stack(max_feats, 0))
-
             # Calculate losses
             if calc_loss:
                 # we don't want to average out over seen words yet
@@ -398,12 +385,6 @@ class GraphParser(chainer.Chain):
 
             sent_arcs.append(F.reshape(arcs, (batch_size, -1, 1)))
 
-        if print_attn:
-            morph_heads = F.stack(morph_heads, axis=0)
-            morph_heads = F.transpose(morph_heads)
-            for dat in morph_heads.data:
-                print(dat)
-
         arcs = F.concat(sent_arcs, axis=2)
 
         # sent_h_heads store the morphological representations
@@ -412,10 +393,10 @@ class GraphParser(chainer.Chain):
         # in other words, each word has different views/representation of its possible heads 
         sent_h_heads = F.stack(sent_h_heads, axis=0)
 
-        return arcs, sent_h_heads
+        return arcs, sent_h_heads, sent_attn_vectors, sub_lengths
 
 
-    def _predict_labels_attn(self, sent_states, pred_heads, pred_reps, gold_heads, batch_stats,
+    def _predict_labels_attn(self, sent_states, pred_heads, pred_reps, sent_attn_vectors, sub_masks, gold_heads, batch_stats,
                         sorted_labels=None):
         """Predict the label for each of the arcs predicted in _predict_heads."""
 
@@ -432,6 +413,9 @@ class GraphParser(chainer.Chain):
         w_lbl = F.reshape(w_lbl, (-1, batch_size, self.mlp_lbl_units))
 
         sent_lbls = []
+        morph_heads = []
+        extract_attn = True
+
         # we start from 1 because we don't consider root
         for i in range(1, max_sent_len):
             # num_active
@@ -444,6 +428,22 @@ class GraphParser(chainer.Chain):
 
             arc_pred = pred_heads[i-1]
             head_reps = pred_reps[i-1]
+
+            if extract_attn:
+                max_feats = []
+                # true_bs is the length of each column
+                true_bs = len(arc_pred)
+                # get attention vector
+                for bs in range(batch_size):
+                    if bs < true_bs:
+                        head_idx = cuda.to_cpu(arc_pred[bs])
+                        mask_val = sub_masks[head_idx][bs]
+                        attn_matrix = sent_attn_vectors[i-1][head_idx]
+                        max_feat = F.argmax(attn_matrix[bs], 0).data
+                        max_feats.append(max_feat)
+                    else:
+                        max_feats.append(self.xp.array(0, dtype=self.xp.int32))
+                morph_heads.append(F.stack(max_feats, 0))
 
             # ================== LABEL PREDICTION ======================
             # TODO: maybe we should use arc_pred sometimes in training??
@@ -474,7 +474,14 @@ class GraphParser(chainer.Chain):
             reshaped_lbls = F.pad(reshaped_lbls,
                     ((0, batch_size - num_active),(0,0), (0,0)), 'constant')
             sent_lbls.append(reshaped_lbls)
+
         lbls = F.concat(sent_lbls, axis=2)
+
+        if extract_attn:
+            morph_heads = F.stack(morph_heads, axis=0)
+            morph_heads = F.transpose(morph_heads)
+            for dat in morph_heads.data:
+                print(dat)
 
         return lbls
 
@@ -510,8 +517,8 @@ class GraphParser(chainer.Chain):
                                                  reverse=True))
         sorted_inputs = list(zip(*sorted_batch))
 
-        print_attn = False
-        if print_attn:
+        extract_attn = True
+        if extract_attn:
             print(perm_indices)
 
         if calc_loss:
@@ -537,7 +544,7 @@ class GraphParser(chainer.Chain):
 
         if self.sub_attn:
             self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
-            arcs, p_reps = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
+            arcs, p_reps, sent_attn_vectors, sub_masks = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
                 sorted_heads=gold_heads)
         else:
             arcs = self._predict_heads(comb_states_2d, self.encoder.mask, batch_stats,
@@ -590,7 +597,7 @@ class GraphParser(chainer.Chain):
 
 
         if self.sub_attn:
-            lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, gold_heads,
+            lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, sent_attn_vectors, sub_masks, gold_heads,
                     batch_stats, sorted_labels=sorted_labels)
         else:
             lbls = self._predict_labels(comb_states_2d, p_arcs, gold_heads,

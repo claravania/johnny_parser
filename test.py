@@ -1,5 +1,6 @@
 import chainer
 import pickle
+import pdb
 from tqdm import tqdm
 from johnny.dep import UDepLoader
 from johnny.metrics import Average, UAS, LAS
@@ -16,6 +17,9 @@ def test_loop(bp, test_set):
         vocabs = pickle.load(pf)
 
     (v_word, v_pos, v_arcs) = vocabs
+    v_word.save_txt('word_vocab_attn.' + bp.dataset.lang)
+
+    # pdb.set_trace()
 
     test_rows = data_to_rows(test_set, vocabs, bp)
 
@@ -52,7 +56,7 @@ def test_loop(bp, test_set):
         # NOTE: test_mean_loss changes because it is averaged
         # across batches, so changing the number of batches affects it
         BATCH_SIZE = 256
-        print_attn = False
+        extract_attn = True
 
         batch_id = 0
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
@@ -61,6 +65,9 @@ def test_loop(bp, test_set):
 
             word_batch, pos_batch, head_batch, label_batch = zip(*batch)
 
+            if extract_attn:
+                print('Batch:', batch_id)
+
             if UNLABELLED:
                 arc_preds, lbl_preds = model(word_batch, pos_batch,
                                              heads=None, labels=None)
@@ -68,10 +75,10 @@ def test_loop(bp, test_set):
                 arc_preds, lbl_preds = model(word_batch, pos_batch,
                                              heads=head_batch, labels=label_batch)
 
-            if print_attn:
-                print('Batch:', batch_id)
+            if extract_attn:
                 for it in range(len(word_batch)):
-                    print(word_batch[it], ' ||| ', pos_batch[it], '|||', tuple(arc_preds[it]))
+                    print(word_batch[it], ' ||| ', pos_batch[it], '|||', tuple(arc_preds[it]), '|||', 
+                        tuple(lbl_preds[it]), ' ||| ', head_batch[it], ' ||| ', label_batch[it])
                 print()
 
             loss = model.loss
