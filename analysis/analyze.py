@@ -42,6 +42,22 @@ def load_vocab(infile):
 	return id2item
 
 
+def load_word_vocab(infile):
+	id2item = defaultdict(str)
+	morph_vocab = set()
+	with open(infile) as f:
+		for line in f:
+			line = line.strip()
+			iid, item = line.split(' ', 1)
+			id2item[int(iid)] = item
+			if '=' in item:
+				lab, val = item.split('=')
+				if lab != '':
+					morph_vocab.add(lab)
+	morph_vocab.add('Lemma')
+	return id2item, morph_vocab
+
+
 def preprocess(seq, dec=False):
 	seq = seq.strip().replace(' ', '')
 	seq = seq[1: len(seq) - 1].split(',')
@@ -52,23 +68,13 @@ def preprocess(seq, dec=False):
 		seq = [int(x) for x in seq]
 	return seq
 
-w_vocab = load_vocab(word_vocab)
+w_vocab, morph_labels = load_word_vocab(word_vocab)
 p_vocab = load_vocab(pos_vocab)
 l_vocab = load_vocab(label_vocab)
 pos_tags = list(p_vocab.values())
 
-
-
-# extract morph vocab
-morph_vocab = set()
-for val in w_vocab.values():
-	if '=' in val:
-		morph_vocab.add(val)
-
 lines = open(log_file).readlines()
 batch_size = 256
-feats = set()
-feats.add('Lemma')
 
 i = 0
 read_batch = ''
@@ -84,9 +90,7 @@ while i < len(lines):
 		break
 
 	if line.startswith('Batch'):
-		read_batch = line.strip()
-		print(read_batch)
-		i += 1
+		i += 2
 		line = lines[i].strip()
 		line = line[1:len(line) - 1]
 		
@@ -96,25 +100,30 @@ while i < len(lines):
 			batch_size = len(sent_ids)
 
 		# read attention vectors
-		i += 1
+		i += 2
 		attn_vectors = lines[i:i+batch_size]
-		sorted_attn_vectors = [x.strip() for _, x in sorted(zip(sent_ids, attn_vectors))]
+		sorted_attn_vectors = [x.strip().replace('\s+', '\s') for _, x in sorted(zip(sent_ids, attn_vectors))]
 		sorted_attn_vectors = [x[1:len(x) - 1] for x in sorted_attn_vectors]
-		sorted_attn_vectors = [[int(x) for x in vec.split(' ')] for vec in sorted_attn_vectors]
+		sorted_attn_vectors = [[int(x) for x in vec.split()] for vec in sorted_attn_vectors]
 
 		i += batch_size
+		i += 1
+
+		u_lbl_preds = [line.strip() for line in lines[i:i+batch_size]]
+		i += batch_size
+		i += 1
 
 		# process each batch of sentence
 		sents = lines[i:i+batch_size]
 		i += batch_size
 
-		for sent_idx, sent in enumerate(sents):
+		for idx, sent in enumerate(sents):
 			sent = sent.strip()
 			morph_ids, pos_ids, arc_pred, lbl_pred, arc_gold, lbl_gold = sent.split(' ||| ')
 
 			sent_morphs = []
 			morph_ids = morph_ids.strip()
-			morph_ids = morph_ids[2: len(morph_ids) - 2]
+			morph_ids = morph_ids[2: len(morph_ids) - 2]			
 
 			for w in morph_ids.split('), ('):
 				w = w.replace(')', '')
@@ -133,6 +142,10 @@ while i < len(lines):
 			arc_gold = preprocess(arc_gold, dec=True)
 			lbl_gold = preprocess(lbl_gold)
 
+			u_arc_pred = u_lbl_preds[idx].replace('\s+', '\s')
+			u_arc_pred = u_arc_pred[1:len(u_arc_pred)-1].split()
+			u_arc_pred = [int(x)-1 for x in u_arc_pred]
+
 			for p in range(len(arc_pred)):
 
 				ap = arc_pred[p]  # position of the predicted arc
@@ -140,12 +153,14 @@ while i < len(lines):
 				ag = arc_gold[p]  # position of the gold arc
 				lg = lbl_gold[p]  # index of the gold label
 
+				u_ap = u_arc_pred[p]
+
 				# head is ROOT
 				if ap == -1:
 					continue
 
 				# if prediction is true
-				if ap == ag and lp ==lg:
+				if ap == ag and lp == lg and u_ap == ap:
 					# part of speech of the head and dependent
 					pos_head = pos_ids[ap]
 					pos_dep = pos_ids[p]
@@ -157,40 +172,29 @@ while i < len(lines):
 						continue
 
 					num_preds[dep_lbl] += 1
-					attn_idx = sorted_attn_vectors[sent_idx][p]
+					attn_idx = sorted_attn_vectors[idx][p]
 
 					if attn_idx < len(sent_morphs[ap]):
-						highest_feat = sent_morphs[ap][attn_idx]
-						mfeat = w_vocab[highest_feat]
-						if mfeat not in morph_vocab:
+						feat_idx = sent_morphs[ap][attn_idx]
+						mfeat = w_vocab[feat_idx]
+						if '=' not in mfeat:
 							morph_dist[dep_lbl]['Lemma'] += 1
 						else:	
 							label, val = mfeat.split('=')
 							morph_dist[dep_lbl][label] += 1
-							feats.add(label)
 					else:
-						print(p)
 						num_errors[dep_lbl] += 1
-						print(sent_idx)
-						print(sorted_attn_vectors[sent_idx])
-						print(arc_pred)
-						print(sent_morphs)
-						print(attn_idx)
-						print(len(sent_morphs[ap]))
-						# pdb.set_trace()
 
-feats = sorted(list(feats))
-for d in dependencies:
-	print('Label:', d)
-	for feat in feats:
+feats = sorted(list(morph_labels))
+
+for feat in feats:
+	stat = [feat]
+	for d in dependencies:
 		v = morph_dist[d][feat]
 		acc = 0
 		if num_preds[d] > 0:
 			acc = round(v * 100.0 / num_preds[d], 2)
-		print(feat, acc)
-	print(num_preds[d], num_errors[d])
-	print('=' * 30)
-	print()
-			
+		stat.append(str(acc))
+	print(' '.join(stat))
 
 	
