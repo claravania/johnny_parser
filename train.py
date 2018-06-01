@@ -186,7 +186,7 @@ def train_epoch(model, optimizer, buckets, data_size):
 
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model(*seqs, heads=head_batch, labels=label_batch)
+            arc_preds, lbl_preds = model(False, *seqs, heads=head_batch, labels=label_batch)
             loss = model.loss
             model.cleargrads()
             loss.backward()
@@ -230,7 +230,7 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
             seqs = list(zip(*batch))
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model(*seqs, heads=head_batch, labels=label_batch)
+            arc_preds, lbl_preds = model(False, *seqs, heads=head_batch, labels=label_batch)
             loss = model.loss
 
             loss_value = float(loss.data)

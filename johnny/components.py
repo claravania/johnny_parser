@@ -138,7 +138,7 @@ class SentenceEncoder(chainer.Chain):
                      for i in range(max_seq_len)]
         return batch
 
-    def __call__(self, *in_seqs):
+    def __call__(self, extract_feat=False, *in_seqs):
         """Creates lstm embedding of the sentence and pos tags.
         If use_bilstm is specified - the embedding is formed from
         concatenating the forward and backward activations
@@ -255,8 +255,11 @@ class SentenceEncoder(chainer.Chain):
             # Remember to clear cache
             self.embedder.word_encoder.clear_cache()
 
-        # returns 2d (batch_size x max_sentence_length) x num_hidden
-        return states
+        if not extract_feat:
+            # returns 2d (batch_size x max_sentence_length) x num_hidden
+            return states, None
+        else:
+            return states, batch_embeddings
 
     def attn_subword_embeds(self, units_dim, max_sub_len, *in_seqs):
 
@@ -315,7 +318,7 @@ class SentenceEncoder(chainer.Chain):
 
 class LSTMWordEncoder(chainer.Chain):
 
-    def __init__(self, vocab_size, max_sub_len, num_units, num_layers,
+    def __init__(self, vocab_size, num_units, num_layers,
                  inp_dropout=0.2, rec_dropout=0.2, use_bilstm=True):
 
         super(LSTMWordEncoder, self).__init__()
@@ -328,7 +331,6 @@ class LSTMWordEncoder(chainer.Chain):
                                                    rec_dropout,
                                                    use_bi_direction=use_bilstm)
         self.vocab_size = vocab_size
-        self.max_sub_len = max_sub_len
         self.num_units = num_units
         self.num_layers = num_layers
         self.rec_dropout = rec_dropout

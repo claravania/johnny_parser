@@ -8,7 +8,7 @@ from train import visualise_dict, data_to_rows, to_batches
 from mlconf import ArgumentParser, Blueprint
 
 
-def test_loop(bp, test_set):
+def test_loop(bp, test_set, extract_feat=None, feat_file=None, label_file=None):
 
     model_path = bp.model_path
     vocab_path = bp.vocab_path
@@ -18,8 +18,6 @@ def test_loop(bp, test_set):
 
     (v_word, v_pos, v_arcs) = vocabs
     v_word.save_txt('word_vocab_attn.' + bp.dataset.lang)
-
-    # pdb.set_trace()
 
     test_rows = data_to_rows(test_set, vocabs, bp)
 
@@ -49,31 +47,73 @@ def test_loop(bp, test_set):
         u_scorer = UAS()
         l_scorer = LAS()
         index = 0
+
         # NOTE: IMPORTANT!!
         # BATCH SIZE is important here to reproduce the results
         # for the cnn - since changing the batch size changes
         # has the effect of different words having different padding.
         # NOTE: test_mean_loss changes because it is averaged
         # across batches, so changing the number of batches affects it
+
         BATCH_SIZE = 256
         extract_attn = True
 
+        if extract_feat:
+            flabel = open(label_file, 'w')
+            ffeat = open(feat_file, 'w')
+
         batch_id = 0
+        idx_sample = 0
+        num_tokens = 0
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
+
             batch_size = 0
             batch_id += 1
-
             word_batch, pos_batch, head_batch, label_batch = zip(*batch)
 
             if extract_attn:
                 print('Batch:', batch_id)
 
             if UNLABELLED:
-                arc_preds, lbl_preds = model(word_batch, pos_batch,
+                arc_preds, lbl_preds = model(extract_feat, word_batch, pos_batch,
                                              heads=None, labels=None)
             else:
-                arc_preds, lbl_preds = model(word_batch, pos_batch,
-                                             heads=head_batch, labels=label_batch)
+                if not extract_feat:
+                    arc_preds, lbl_preds = model(False, word_batch, pos_batch,
+                                         heads=head_batch, labels=label_batch)
+                else:
+                    arc_preds, lbl_preds, states, embs = model(True, word_batch, pos_batch,
+                                         heads=head_batch, labels=label_batch)
+
+            if extract_feat:
+                true_bs = len(word_batch)
+                for sent_idx in range(idx_sample, idx_sample + true_bs):
+                    words = test_set.words[sent_idx]
+                    upostags = test_set.upostags[sent_idx]
+                    xfeats = test_set.feats[sent_idx]
+                    if extract_feat == 'enc':
+                        state = states[sent_idx - idx_sample]
+                    elif extract_feat == 'emb':
+                        state = embs[sent_idx - idx_sample]
+                    else:
+                        sys.exit('Wrong mode, please select enc or emb.')
+
+                    assert len(words) == len(upostags) == len(xfeats)
+
+                    for idx in range(len(words)):
+                        labels = [idx + 1, words[idx], upostags[idx], xfeats[idx]]
+                        labels = '\t'.join([str(l) for l in labels])
+                        flabel.write(labels + '\n')
+
+                        feats = ','.join([str(x) for x in state[idx + 1].data])
+                        ffeat.write(feats + '\n')
+
+                        num_tokens += 1
+                        
+                    flabel.flush()
+                    ffeat.flush()
+                idx_sample += true_bs
+
 
             if extract_attn:
                 print('Data:')
@@ -101,6 +141,12 @@ def test_loop(bp, test_set):
             out_str = tf_str.format(batch_size, mean_loss.score, u_scorer.score, l_scorer.score)
             pbar.set_description(out_str)
             pbar.update(batch_size)
+
+        if extract_feat:
+            flabel.close()
+            ffeat.close()
+            print('Total token vectors:', num_tokens)
+
     # make sure you aren't a dodo
     assert(index == len(test_set))
 
@@ -110,7 +156,7 @@ def test_loop(bp, test_set):
 
     # TODO: save these
     bp.test_results = stats
-    for key, val in stats.items():
+    for key, val in sorted(stats.items()):
         print('%s: %s' % (key, val))
 
 
@@ -128,19 +174,37 @@ if __name__ == "__main__":
     parser.add_argument('--treeify', type=str, default='chu',
                         help='algorithm to postprocess arcs with. '
                         'Choose chu to allow for non projectivity, else eisner')
+    parser.add_argument('--extract_feat', type=str, default=None,
+                        help='Whether to extract features or not.')
+    parser.add_argument('--lang', type=str, default='english',
+                        help='Language (optional, only for extracting feature). ')
 
     args = parser.parse_args()
 
     CONLL_OUT = args.conll_out
     UNLABELLED = args.unlabelled
     TREEIFY = args.treeify
+    extract_feat = args.extract_feat
+    lang = args.lang
 
     blueprint = Blueprint.from_file(args.blueprint)
     blueprint.model.treeify = TREEIFY
+    feat_file = None
+    label_file = None
 
     test_data = UDepLoader.load_conllu(args.test_file)
 
-    test_loop(blueprint, test_data)
+    filename = os.path.basename(args.test_file).replace('.conllu', '')
+
+    if extract_feat:
+        path = os.path.join('features', lang)
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+        feat_file = os.path.join(path, filename + '.feat')
+        label_file = os.path.join(path, filename + '.lbl')
+
+    test_loop(blueprint, test_data, extract_feat, feat_file=feat_file, label_file=label_file)
 
     if CONLL_OUT:
         test_data.save(blueprint.model_path.replace('.model', '.conllu'))

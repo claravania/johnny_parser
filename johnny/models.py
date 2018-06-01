@@ -238,7 +238,7 @@ class GraphParser(chainer.Chain):
 
         calc_loss = sorted_heads is not None
 
-        extract_attn = True
+        extract_attn = False
 
         # In order to predict which head is most probable for a given word
         # For each token in the sentence we get a vector represention
@@ -487,7 +487,7 @@ class GraphParser(chainer.Chain):
         return lbls
 
 
-    def __call__(self, *inputs, **kwargs):
+    def __call__(self, extract_feat=False, *inputs, **kwargs):
         """ Expects a batch of sentences 
         so a list of K sentences where each sentence
         is a 2-tuple of indices of words, indices of pos tags.
@@ -518,7 +518,7 @@ class GraphParser(chainer.Chain):
                                                  reverse=True))
         sorted_inputs = list(zip(*sorted_batch))
 
-        extract_attn = True
+        extract_attn = False
         if extract_attn:
             print('Permutation indices:')
             print(perm_indices)
@@ -529,13 +529,14 @@ class GraphParser(chainer.Chain):
         else:
             sorted_heads, sorted_labels = None, None
 
-        comb_states_2d = self.encoder(*sorted_inputs)
-
-        self.loss = 0
+        comb_states_2d, embeddings = self.encoder(extract_feat, *sorted_inputs)
 
         batch_stats = (self.encoder.batch_size,
                        self.encoder.max_seq_len,
                        self.encoder.col_lengths)
+        batch_size, max_sent_len, col_lengths = batch_stats
+
+        self.loss = 0
 
         if calc_loss:
             # NOTE: We need the heads variables both in predict heads & labels
@@ -662,7 +663,27 @@ class GraphParser(chainer.Chain):
             for u_pred in u_arc_preds:
                 print(u_pred)
 
-        return arc_preds, lbl_preds
+        if not extract_feat:
+            return arc_preds, lbl_preds
+        else:
+            states = F.reshape(comb_states_2d, (max_sent_len, batch_size, -1))
+            states = F.separate(states, axis=1)
+            sorted_states = [states[i] for i in inv_perm_indices]
+            
+            # retrieve embedding layer
+            embs = defaultdict(list)
+            for i in range(len(embeddings)):
+                for idx, vec in enumerate(embeddings[i]):
+                    embs[idx].append(vec)
+
+            # we skip START/END symbol
+            sent_embs = list()
+            for i in range(len(embs)):
+                sent_embs.append(embs[i][1:-1])
+            sorted_sent_embs = [sent_embs[i] for i in inv_perm_indices]
+
+            return arc_preds, lbl_preds, sorted_states, sorted_sent_embs
+
 
     def _visualise(self, arcs, lbls, gold_heads, gold_labels):
         max_sent_len = len(arcs[1])
