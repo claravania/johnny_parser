@@ -186,7 +186,7 @@ def train_epoch(model, optimizer, buckets, data_size):
 
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model(False, *seqs, heads=head_batch, labels=label_batch)
+            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch)
             loss = model.loss
             model.cleargrads()
             loss.backward()
@@ -230,7 +230,7 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
             seqs = list(zip(*batch))
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model(False, *seqs, heads=head_batch, labels=label_batch)
+            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch)
             loss = model.loss
 
             loss_value = float(loss.data)
@@ -385,8 +385,10 @@ if __name__ == "__main__":
         conf.model.encoder.embedder.in_sizes = [len(v_pos)]
         if conf.ngram < 0:
             # for sub_attn model
-            # TODO: may need too for character model (but will be very slow!)
+            # TODO: may need too for character model (but might be slow!)
             conf.model.encoder.embedder.word_encoder.max_sub_len = get_max_sub_len(t_set, conf)
+        else:
+            conf.model.encoder.embedder.word_encoder.max_sub_len = -1
     conf.model.num_labels = len(v_arc)
 
     # built_conf has all class representations instantiated

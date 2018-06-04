@@ -227,7 +227,7 @@ class GraphParser(chainer.Chain):
         return lbls
 
 
-    def _predict_heads_attn(self, sent_states, subword_embeds, mask, sub_lengths, batch_stats, sorted_heads=None):
+    def _predict_heads_attn(self, sent_states, subword_embeds, mask, sub_lengths, batch_stats, extract_attn=False, sorted_heads=None):
         """For each token in the sentence predict which token in the sentence
         is its head."""
 
@@ -237,8 +237,6 @@ class GraphParser(chainer.Chain):
         batch_size, max_sent_len, col_lengths = batch_stats
 
         calc_loss = sorted_heads is not None
-
-        extract_attn = False
 
         # In order to predict which head is most probable for a given word
         # For each token in the sentence we get a vector represention
@@ -398,7 +396,7 @@ class GraphParser(chainer.Chain):
 
 
     def _predict_labels_attn(self, sent_states, pred_heads, pred_reps, sent_attn_vectors, gold_heads, batch_stats,
-                        sorted_labels=None):
+                        extract_attn=False, sorted_labels=None):
         """Predict the label for each of the arcs predicted in _predict_heads."""
 
         batch_size, max_sent_len, col_lengths = batch_stats
@@ -415,7 +413,6 @@ class GraphParser(chainer.Chain):
 
         sent_lbls = []
         morph_heads = []
-        extract_attn = True
 
         # we start from 1 because we don't consider root
         for i in range(1, max_sent_len):
@@ -487,7 +484,7 @@ class GraphParser(chainer.Chain):
         return lbls
 
 
-    def __call__(self, extract_feat=False, *inputs, **kwargs):
+    def __call__(self, flags, *inputs, **kwargs):
         """ Expects a batch of sentences 
         so a list of K sentences where each sentence
         is a 2-tuple of indices of words, indices of pos tags.
@@ -517,7 +514,7 @@ class GraphParser(chainer.Chain):
                                                  key=lambda x: len(x[1][0]),
                                                  reverse=True))
         sorted_inputs = list(zip(*sorted_batch))
-
+        extract_feat, extract_attn = flags
         extract_attn = False
         if extract_attn:
             print('Permutation indices:')
@@ -548,7 +545,7 @@ class GraphParser(chainer.Chain):
         if self.sub_attn:
             self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
             arcs, p_reps, sent_attn_vectors = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
-                sorted_heads=gold_heads)
+                extract_attn, sorted_heads=gold_heads)
         else:
             arcs = self._predict_heads(comb_states_2d, self.encoder.mask, batch_stats,
                 sorted_heads=gold_heads)
@@ -606,7 +603,7 @@ class GraphParser(chainer.Chain):
 
         if self.sub_attn:
             lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, sent_attn_vectors, gold_heads,
-                    batch_stats, sorted_labels=sorted_labels)
+                    batch_stats, extract_attn, sorted_labels=sorted_labels)
         else:
             lbls = self._predict_labels(comb_states_2d, p_arcs, gold_heads,
                     batch_stats, sorted_labels=sorted_labels)

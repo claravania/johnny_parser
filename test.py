@@ -8,7 +8,7 @@ from train import visualise_dict, data_to_rows, to_batches
 from mlconf import ArgumentParser, Blueprint
 
 
-def test_loop(bp, test_set, extract_feat=None, feat_file=None, label_file=None):
+def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None, label_file=None):
 
     model_path = bp.model_path
     vocab_path = bp.vocab_path
@@ -56,7 +56,6 @@ def test_loop(bp, test_set, extract_feat=None, feat_file=None, label_file=None):
         # across batches, so changing the number of batches affects it
 
         BATCH_SIZE = 256
-        extract_attn = True
 
         if extract_feat:
             flabel = open(label_file, 'w')
@@ -74,15 +73,16 @@ def test_loop(bp, test_set, extract_feat=None, feat_file=None, label_file=None):
             if extract_attn:
                 print('Batch:', batch_id)
 
+            flags = [extract_feat, extract_attn]
             if UNLABELLED:
-                arc_preds, lbl_preds = model(extract_feat, word_batch, pos_batch,
+                arc_preds, lbl_preds = model(flags, word_batch, pos_batch,
                                              heads=None, labels=None)
             else:
                 if not extract_feat:
-                    arc_preds, lbl_preds = model(False, word_batch, pos_batch,
+                    arc_preds, lbl_preds = model(flags, word_batch, pos_batch,
                                          heads=head_batch, labels=label_batch)
                 else:
-                    arc_preds, lbl_preds, states, embs = model(True, word_batch, pos_batch,
+                    arc_preds, lbl_preds, states, embs = model(flags, word_batch, pos_batch,
                                          heads=head_batch, labels=label_batch)
 
             if extract_feat:
@@ -176,6 +176,8 @@ if __name__ == "__main__":
                         'Choose chu to allow for non projectivity, else eisner')
     parser.add_argument('--extract_feat', type=str, default=None,
                         help='Whether to extract features or not.')
+    parser.add_argument('--extract_attn', type=str, default=None,
+                        help='Whether to extract attention vectors (for attention model only).')
     parser.add_argument('--lang', type=str, default='english',
                         help='Language (optional, only for extracting feature). ')
 
@@ -204,7 +206,7 @@ if __name__ == "__main__":
         feat_file = os.path.join(path, filename + '.feat')
         label_file = os.path.join(path, filename + '.lbl')
 
-    test_loop(blueprint, test_data, extract_feat, feat_file=feat_file, label_file=label_file)
+    test_loop(blueprint, test_data, extract_feat, extract_attn, feat_file=feat_file, label_file=label_file)
 
     if CONLL_OUT:
         test_data.save(blueprint.model_path.replace('.model', '.conllu'))

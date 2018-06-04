@@ -318,7 +318,7 @@ class SentenceEncoder(chainer.Chain):
 
 class LSTMWordEncoder(chainer.Chain):
 
-    def __init__(self, vocab_size, num_units, num_layers,
+    def __init__(self, vocab_size, max_sub_len, num_units, num_layers,
                  inp_dropout=0.2, rec_dropout=0.2, use_bilstm=True):
 
         super(LSTMWordEncoder, self).__init__()
@@ -332,6 +332,7 @@ class LSTMWordEncoder(chainer.Chain):
                                                    use_bi_direction=use_bilstm)
         self.vocab_size = vocab_size
         self.num_units = num_units
+        self.max_sub_len = max_sub_len
         self.num_layers = num_layers
         self.rec_dropout = rec_dropout
         self.inp_dropout = inp_dropout
@@ -380,7 +381,7 @@ class CNNWordEncoder(chainer.Chain):
     FILTER_MULTIPLIER = 25
     IGNORE_LABEL = -1
 
-    def __init__(self, vocab_size, embed_units=15, num_highway_layers=1,
+    def __init__(self, vocab_size, max_sub_len, embed_units=15, num_highway_layers=1,
                  highway_dropout=0.0, ngrams=(1, 2, 3, 4, 5, 6), stride=1, num_filters=None):
 
         super(CNNWordEncoder, self).__init__()
@@ -388,6 +389,7 @@ class CNNWordEncoder(chainer.Chain):
             # http://www.people.fas.harvard.edu/~yoonkim/data/char-nlm.pdf
             # Table 2 small model uses constant size
             num_filters = [n * self.FILTER_MULTIPLIER for n in ngrams]
+        
         assert(len(num_filters) == len(ngrams))
         assert(num_highway_layers >= 0)
         out_size = sum(num_filters)
@@ -408,9 +410,11 @@ class CNNWordEncoder(chainer.Chain):
                 # init_bt -2 used in Kim paper
                 setattr(self, name, L.Highway(out_size, init_bt=-2))
         self.vocab_size = vocab_size
+        self.max_sub_len = max_sub_len
         self.embed_units = embed_units
         self.num_highway_layers = num_highway_layers
         self.highway_dropout = highway_dropout
+
         # highway doesn't change dimensionality
         self.out_size = out_size
         self.cache = dict()
