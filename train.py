@@ -242,15 +242,11 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
             out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score)
             pbar.set_description(out_str)
             pbar.update(len(batch))
-    # if num_labels is None:
-    #     conf_matrix = [[]]
-    # else:
-    #     conf_matrix = l_scorer.conf_matrix.tolist()
-    # conf_matrix = [[]]
+
     stats = {label_stat('mean_loss'): mean_loss.score,
              label_stat('uas'): u_scorer.score,
              label_stat('las'): l_scorer.score}
-             # label_stat('conf_matrix'): conf_matrix}
+            
     return stats
 
 
@@ -390,6 +386,7 @@ if __name__ == "__main__":
         else:
             conf.model.encoder.embedder.word_encoder.max_sub_len = -1
     conf.model.num_labels = len(v_arc)
+    conf.model.num_tags = len(v_arc)
 
     # built_conf has all class representations instantiated
     # we need this here because otherwise we wouldn't be able to set random seed

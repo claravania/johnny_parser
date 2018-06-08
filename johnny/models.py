@@ -26,27 +26,35 @@ class GraphParser(chainer.Chain):
     def __init__(self,
                  encoder,
                  num_labels=46,
+                 num_tags=46,
                  mlp_arc_units=100,
                  mlp_lbl_units=100,
+                 mlp_tag_units=100,
                  arc_dropout=0.0,
                  lbl_dropout=0.5,
+                 tag_dropout=0.0,
                  treeify='chu',
                  visualise=False,
                  debug=False,
-                 sub_attn=False
+                 sub_attn=False,
+                 apply_mtl=False
                  ):
 
         super(GraphParser, self).__init__()
         self.num_labels = num_labels
+        self.num_tags = num_tags
         self.mlp_arc_units = mlp_arc_units
         self.mlp_lbl_units = mlp_lbl_units
+        self.mlp_tag_units = mlp_tag_units
         self.arc_dropout = arc_dropout
         self.lbl_dropout = lbl_dropout
+        self.tag_dropout = tag_dropout
         self.treeify = treeify.lower()
         self.visualise = visualise
         self.debug = debug
         self.sleep_time = 0.
         self.sub_attn = sub_attn
+        self.apply_mtl = apply_mtl
 
         assert(treeify in self.TREE_OPTS)
         self.unit_mult = 2 if encoder.use_bilstm else 1
@@ -54,7 +62,6 @@ class GraphParser(chainer.Chain):
         with self.init_scope():
 
             self.encoder = encoder
-
             self.vT = L.Linear(mlp_arc_units, 1)
 
             # head
@@ -79,6 +86,12 @@ class GraphParser(chainer.Chain):
                 self.W_head = L.Linear(mlp_arc_units, mlp_arc_units)
                 self.W_dependent = L.Linear(mlp_arc_units, mlp_arc_units)
                 self.U_lbl_attn = L.Linear(mlp_arc_units, mlp_lbl_units)
+
+            if self.apply_mtl:
+                self.l1_tag = L.Linear(self.unit_mult*self.encoder.num_units, self.mlp_tag_units)
+                self.l2_tag = L.Linear(self.mlp_tag_units, self.mlp_tag_units)
+                self.out_tag = L.Linear(self.mlp_tag_units, self.num_tags)
+
                 
             self.V_lblT = L.Linear(mlp_lbl_units, self.num_labels)
             self.U_lbl = L.Linear(self.unit_mult*self.encoder.num_units, mlp_lbl_units)
@@ -484,6 +497,36 @@ class GraphParser(chainer.Chain):
         return lbls
 
 
+    def _predict_tags(self, sent_states, mask, batch_stats, sorted_tags=None):
+        """For each token in the sentence predict its tag."""
+
+        sorted_heads = sorted_tags
+        batch_size, max_sent_len, col_lengths = batch_stats
+        calc_loss = sorted_heads is not None
+
+        h_tag = F.relu(self.l1_tag(sent_states))
+        h_tag = F.dropout(F.relu(self.l2_tag(h_tag)), ratio=self.tag_dropout)
+        
+        tag_logits = self.out_tag(h_tag)
+        tag_logits = F.reshape(tag_logits, (-1, batch_size, self.num_tags))
+
+        total_loss = 0
+        sent_tags = []
+        for i in range(1, max_sent_len):
+            if calc_loss:
+                # i-1 because sentence has root appended to beginning
+                gold_tags = sorted_heads[i-1]
+                pred_tags = tag_logits[i]
+                num_active = col_lengths[i]
+                tag_loss = F.sum(F.softmax_cross_entropy(pred_tags[:num_active], gold_tags[:num_active], reduce='no'))
+                total_loss += tag_loss
+
+            pred = F.argmax(F.softmax(pred_tags[:num_active]), axis=1)
+            sent_tags.append(pred)
+
+        return total_loss, sent_tags
+
+
     def __call__(self, flags, *inputs, **kwargs):
         """ Expects a batch of sentences 
         so a list of K sentences where each sentence
@@ -520,6 +563,7 @@ class GraphParser(chainer.Chain):
             print('Permutation indices:')
             print(perm_indices)
 
+        self.loss = 0
         if calc_loss:
             sorted_heads = [heads[i] for i in perm_indices]
             sorted_labels = [labels[i] for i in perm_indices]
@@ -533,12 +577,11 @@ class GraphParser(chainer.Chain):
                        self.encoder.col_lengths)
         batch_size, max_sent_len, col_lengths = batch_stats
 
-        self.loss = 0
-
         if calc_loss:
             # NOTE: We need the heads variables both in predict heads & labels
             # heads are seq_len - 1 in length because they don't include ROOT
             gold_heads = self.encoder.transpose_batch(sorted_heads)
+            gold_tags = self.encoder.transpose_batch(sorted_labels)
         else:
             gold_heads = None
 
@@ -549,6 +592,10 @@ class GraphParser(chainer.Chain):
         else:
             arcs = self._predict_heads(comb_states_2d, self.encoder.mask, batch_stats,
                 sorted_heads=gold_heads)
+
+        if self.apply_mtl:
+            aux_loss, pred_tags = self._predict_tags(comb_states_2d, self.encoder.mask, batch_stats,
+                sorted_tags=gold_tags)
 
         if self.debug or self.visualise:
             self.arcs = cuda.to_cpu(F.softmax(arcs).data)
@@ -634,7 +681,7 @@ class GraphParser(chainer.Chain):
 
         # normalize loss over all tokens seen
         total_tokens = np.sum(self.encoder.col_lengths)
-        self.loss = self.loss / total_tokens
+        self.loss = (self.loss + aux_loss) / total_tokens
 
         inv_perm_indices = [perm_indices.index(i) for i in range(len(perm_indices))]
         if self.debug or self.visualise:
