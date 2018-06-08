@@ -26,7 +26,7 @@ class GraphParser(chainer.Chain):
     def __init__(self,
                  encoder,
                  num_labels=46,
-                 num_tags=46,
+                 num_tags=0,
                  mlp_arc_units=100,
                  mlp_lbl_units=100,
                  mlp_tag_units=100,
@@ -564,6 +564,7 @@ class GraphParser(chainer.Chain):
             print(perm_indices)
 
         self.loss = 0
+        aux_loss = 0
         if calc_loss:
             sorted_heads = [heads[i] for i in perm_indices]
             sorted_labels = [labels[i] for i in perm_indices]
