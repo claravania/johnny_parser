@@ -318,14 +318,7 @@ class Token(object):
                 if prop == self.EMPTY:
                     morph_dict = list()
                 else:
-                    # some conll-x languages have a|b|c feats
-                    # in that case we use the pos tag position of feat
-                    if self.MORPH_ASSIGN not in prop:
-                        morph_dict = prop.split(self.MORPH_SEP)
-                    else:
-                        # modify for conll2017 structure
-                        # morph dict is a list of tuple (feature_tag, feature_value)
-                        morph_dict = prop.split(self.MORPH_SEP)
+                    morph_dict = prop.split(self.MORPH_SEP)
                 setattr(self, Token.CONLLU_ATTRS[i], morph_dict)
             else:
                 setattr(self, Token.CONLLU_ATTRS[i], prop)

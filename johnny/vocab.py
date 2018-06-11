@@ -280,6 +280,78 @@ class UDepVocab(object):
                 f.write(str(value) + ' ' + key + '\n')
 
 
+class AuxVocab(object):
+    """ Auxiliary label vocabulary.
+    """
+    def __init__(self, tags):
+        super(AuxVocab, self).__init__()
+        self.tags = tags
+        self.index = dict((key, index) for index, key in enumerate(self.tags))
+
+    def __repr__(self):
+        return ('AuxVocab object\nnum labels: %d' % len(self))
+
+    def __len__(self):
+        return len(self.index)
+
+    def __getitem__(self, key):
+        return self.index[key]
+
+    def fit(self, tokens):
+        return self
+
+    def encode(self, tags):
+        """tags : iterable of tags """
+        return tuple(self.index[tag] for tag in tags)
+
+    def save_txt(self, filepath):
+        with open(filepath, 'w') as f:
+            for key, value in sorted(self.index.items(), key=lambda x: x[1]):
+                f.write(str(value) + ' ' + key + '\n')
+
+
+class MorphTags(object):
+    """ 
+    XFEATS inflectional features.
+    Note that we only use inflectional tags from the universal dependencies v2.0.
+    Here, we basically collect all possible universal tag, value pair from the training data
+    and treat unknown tag, value pair during inference as an unknown tag.
+
+    Universal features (15 inflectional features):
+    Gender
+    Animacy
+    Number
+    Case
+    Definite
+    Degree
+    VerbForm
+    Mood
+    Tense
+    Aspect
+    Voice
+    Evident
+    Polarity
+    Person
+    Polite
+    """
+    IN_FEATS = ['Gender', 'Animacy', 'Number', 'Case', 'Definite',
+                'Degree', 'VerbForm', 'Mood', 'Tense', 'Aspect',
+                'Voice', 'Evident', 'Polarity', 'Person', 'Polite']
+
+    def __init__(self):
+        super(MorphTags, self).__init__()
+        self.feats = self.IN_FEATS
+
+    def __repr__(self):
+        return ('XFEATS object\ninflectional tags: %d\n' % len(self))
+
+    def __len__(self):
+        return len(self.feats)
+
+    def get_tags(self):
+        return self.feats
+
+
 class AbstractVocab(object):
     """Used when we don't know what labels to expect"""
 
@@ -324,45 +396,4 @@ class AbstractVocab(object):
             v = pickle.load(f)
             v.mutable = False
             return v
-
-class MorphTags(object):
-    """ 
-    XFEATS inflectional features.
-    Note that we only use inflectional tags from the universal dependencies v2.0.
-    Here, we basically collect all possible universal tag, value pair from the training data
-    and treat unknown tag, value pair during inference as an unknown tag.
-
-    Universal features (15 inflectional features):
-    Gender
-    Animacy
-    Number
-    Case
-    Definite
-    Degree
-    VerbForm
-    Mood
-    Tense
-    Aspect
-    Voice
-    Evident
-    Polarity
-    Person
-    Polite
-    """
-    IN_FEATS = ['Gender', 'Animacy', 'Number', 'Case', 'Definite',
-                'Degree', 'VerbForm', 'Mood', 'Tense', 'Aspect',
-                'Voice', 'Evident', 'Polarity', 'Person', 'Polite']
-
-    def __init__(self):
-        super(MorphTags, self).__init__()
-        self.feats = self.IN_FEATS
-
-    def __repr__(self):
-        return ('XFEATS object\ninflectional tags: %d\n' % len(self))
-
-    def __len__(self):
-        return len(self.feats)
-
-    def get_tags(self):
-        return self.feats
 

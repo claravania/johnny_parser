@@ -9,7 +9,7 @@ from tqdm import tqdm
 from itertools import chain
 from johnny import EXP_ENV_VAR
 from johnny.dep import UDepLoader
-from johnny.vocab import Vocab, AbstractVocab, UDepVocab, UPOSVocab, MorphTags
+from johnny.vocab import Vocab, AbstractVocab, UDepVocab, UPOSVocab, MorphTags, AuxVocab
 from johnny.utils import BucketManager
 from johnny.metrics import Average, UAS, LAS
 import johnny.preprocess as pp
@@ -100,6 +100,23 @@ def create_vocabs(t_set, conf):
     v_word = Vocab(out_size=conf.vocab.size,
                    threshold=conf.vocab.threshold).fit(chain.from_iterable(t_tokens))
 
+    v_aux = None
+    if conf.model.apply_mtl:
+        aux_tag = conf.model.apply_mtl
+        aux_labels = set()
+        for sent_feat in t_set.feats:
+            for word_feat in sent_feat:
+                if len(word_feat) == 0:
+                    continue
+                else:
+                    for feat in word_feat:
+                        tag, val = feat.split('=')
+                        if tag.lower() == aux_tag:
+                            aux_labels.add(feat)
+        aux_labels.add('_')
+        aux_labels = sorted(list(aux_labels))
+        v_aux = AuxVocab(aux_labels)
+
     # if we are using the CONLL2017 dataset (universal dependencies)
     # then we know the vocabulary beforehand. We use the full vocabulary
     # with predefined keys because it is less errorprone, and because we
@@ -110,14 +127,14 @@ def create_vocabs(t_set, conf):
     else:
         v_pos = AbstractVocab()
         v_arcs = AbstractVocab(with_reserved=False)
-    vocabs = (v_word, v_pos, v_arcs)
+    vocabs = (v_word, v_pos, v_arcs, v_aux)
     return vocabs
 
 
 def data_to_rows(data, vocabs, conf):
     # transform data to rows
     # each row consists of word indices, pos tag indices, heads, and labels indices
-    v, vpos, varcs = vocabs
+    v, vpos, varcs, vaux = vocabs
     if conf.ngram == 0:
         words_indices = tuple(v.encode(preprocess(w, conf.preprocess)
                         for w in s)
@@ -135,7 +152,26 @@ def data_to_rows(data, vocabs, conf):
     pos_indices = tuple(map(vpos.encode, data.upostags))
     labels_indices = tuple(map(varcs.encode, data.arctags))
     heads = data.heads
-    data_rows = zip(words_indices, pos_indices, heads, labels_indices)
+
+    aux_indices = None
+    if conf.model.apply_mtl:
+        aux_tag = conf.model.apply_mtl
+        aux_tags = []
+        for sent_feat in data.feats:
+            sent_tags = []
+            for word_feat in sent_feat:
+                wtag = '_'
+                if len(word_feat) > 0:
+                    for feat in word_feat:
+                        tag, val = feat.split('=')
+                        if tag.lower() == aux_tag:
+                            wtag = feat
+                sent_tags.append(wtag)
+            aux_tags.append(tuple(sent_tags))
+        aux_tags = tuple(aux_tags)
+        aux_indices = tuple(map(vaux.encode, aux_tags))
+
+    data_rows = zip(words_indices, pos_indices, heads, labels_indices, aux_indices)
 
     return tuple(data_rows)
 
@@ -183,10 +219,10 @@ def train_epoch(model, optimizer, buckets, data_size):
 
         for batch in buckets:
             seqs = list(zip(*batch))
-
+            aux_label_batch = seqs.pop()
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch)
+            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
             loss = model.loss
             model.cleargrads()
             loss.backward()
@@ -228,9 +264,10 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
         for batch in buckets:
             # model.reset_state()
             seqs = list(zip(*batch))
+            aux_label_batch = seqs.pop()
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch)
+            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
             loss = model.loss
 
             loss_value = float(loss.data)
@@ -359,10 +396,11 @@ if __name__ == "__main__":
     conf.dataset.dev_max_sent_len = v_set.len_stats['max_sent_len']
 
     vocabs = create_vocabs(t_set, conf)
-    v_word, v_pos, v_arc = vocabs
+    v_word, v_pos, v_arc, v_aux = vocabs
 
     v_word.save_txt('word_vocab.txt')
     v_pos.save_txt('pos_vocab.txt')
+    v_aux.save_txt('aux_vocab.txt')
 
     train_rows = data_to_rows(t_set, vocabs, conf)
     dev_rows = data_to_rows(v_set, vocabs, conf)
@@ -386,7 +424,7 @@ if __name__ == "__main__":
         else:
             conf.model.encoder.embedder.word_encoder.max_sub_len = -1
     conf.model.num_labels = len(v_arc)
-    conf.model.num_tags = len(v_arc)
+    conf.model.num_aux_lbls = len(v_aux.index)
 
     # built_conf has all class representations instantiated
     # we need this here because otherwise we wouldn't be able to set random seed
