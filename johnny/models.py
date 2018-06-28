@@ -724,7 +724,7 @@ class GraphParser(chainer.Chain):
                         final_tags.append([tag_id.data])
                     else:
                         final_tags[j].append(tag_id.data)
-            final_tags = [self.xp.array(f) for f in final_tags]
+            final_tags = [self.xp.array(f, dtype=self.xp.int32) for f in final_tags]
             tags = [final_tags[i] for i in inv_perm_indices]
             tag_preds = [tag_p[:l] for tag_p, l in zip(tags, input_sent_lengths)]
         else:

@@ -8,7 +8,7 @@ from mlconf import YAMLLoaderAction, ArgumentParser
 from tqdm import tqdm
 from itertools import chain
 from johnny import EXP_ENV_VAR
-from johnny.dep import UDepLoader
+from johnny.dep import UDepLoader, Dataset
 from johnny.vocab import Vocab, AbstractVocab, UDepVocab, UPOSVocab, MorphTags, AuxVocab
 from johnny.utils import BucketManager
 from johnny.metrics import Average, UAS, LAS
@@ -410,6 +410,10 @@ if __name__ == "__main__":
     print('Loading dataset...')
     udep = UDepLoader(conf.dataset.name, datafolder=conf.datafolder)
     t_set, v_set = udep.load_train_dev(conf.dataset.lang, verbose=conf.verbose)
+
+    train_size = len(t_set) * conf.train_size // 100
+    t_set = Dataset(t_set[:train_size])
+    print('Training data:', train_size, 'sents')
 
     conf.dataset.train_max_sent_len = t_set.len_stats['max_sent_len']
     conf.dataset.dev_max_sent_len = v_set.len_stats['max_sent_len']

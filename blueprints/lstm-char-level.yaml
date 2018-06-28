@@ -2,9 +2,10 @@
 # 1+ corresponds to character ngram size (unigrams, bigrams, trigrams)
 seed: 43
 ngram: 1
-max_epochs: 50
+max_epochs: 20
 batch_size: 32
 dev_batch_size: 256
+train_size: 50
 vocab:
   size: 500
   threshold: 1
@@ -59,5 +60,5 @@ train_buckets:
   bucket_width: 5
   right_leak: 5
 checkpoint:
-  patience: 50
+  patience: 10
   every: 100
