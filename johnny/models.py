@@ -32,12 +32,13 @@ class GraphParser(chainer.Chain):
                  mlp_tag_units=100,
                  arc_dropout=0.0,
                  lbl_dropout=0.5,
-                 tag_dropout=0.0,
+                 tag_dropout=0.2,
                  treeify='chu',
                  visualise=False,
                  debug=False,
                  sub_attn=False,
-                 apply_mtl=False
+                 apply_mtl=False,
+                 mtl_weight=0.0
                  ):
 
         super(GraphParser, self).__init__()
@@ -54,7 +55,10 @@ class GraphParser(chainer.Chain):
         self.debug = debug
         self.sleep_time = 0.
         self.sub_attn = sub_attn
+
+        # MTL parameters
         self.apply_mtl = apply_mtl
+        self.mtl_weight = mtl_weight  # weight for the auxiliary task loss
 
         assert(treeify in self.TREE_OPTS)
         self.unit_mult = 2 if encoder.use_bilstm else 1
@@ -511,6 +515,7 @@ class GraphParser(chainer.Chain):
         tag_logits = F.reshape(tag_logits, (-1, batch_size, self.num_aux_lbls))
 
         total_loss = 0
+        total_acc = 0
         sent_tags = []
         for i in range(1, max_sent_len):
             if calc_loss:
@@ -519,12 +524,16 @@ class GraphParser(chainer.Chain):
                 pred_tags = tag_logits[i]
                 num_active = col_lengths[i]
                 tag_loss = F.sum(F.softmax_cross_entropy(pred_tags[:num_active], gold_tags[:num_active], reduce='no'))
+                tag_acc = F.sum(F.accuracy(pred_tags[:num_active], gold_tags[:num_active]))
                 total_loss += tag_loss
+                total_acc += tag_acc
 
             pred = F.argmax(F.softmax(pred_tags[:num_active]), axis=1)
             sent_tags.append(pred)
 
-        return total_loss, sent_tags
+        total_acc = total_acc / (max_sent_len - 1)
+
+        return total_loss, total_acc, sent_tags
 
 
     def __call__(self, flags, *inputs, **kwargs):
@@ -566,6 +575,7 @@ class GraphParser(chainer.Chain):
 
         self.loss = 0
         aux_loss = 0
+        aux_acc = 0
         if calc_loss:
             sorted_heads = [heads[i] for i in perm_indices]
             sorted_labels = [labels[i] for i in perm_indices]
@@ -574,7 +584,10 @@ class GraphParser(chainer.Chain):
         else:
             sorted_heads, sorted_labels, sorted_aux_labels = None, None, None
 
-        comb_states_2d, embeddings = self.encoder(extract_feat, *sorted_inputs)
+
+        # get states from the RNN encoder
+        rnn_states, embeddings = self.encoder(extract_feat, *sorted_inputs)
+        final_states = rnn_states
 
         batch_stats = (self.encoder.batch_size,
                        self.encoder.max_seq_len,
@@ -591,120 +604,144 @@ class GraphParser(chainer.Chain):
         else:
             gold_heads = None
 
-        if self.sub_attn:
-            self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
-            arcs, p_reps, sent_attn_vectors = self._predict_heads_attn(comb_states_2d, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
-                extract_attn, sorted_heads=gold_heads)
-        else:
-            arcs = self._predict_heads(comb_states_2d, self.encoder.mask, batch_stats,
-                sorted_heads=gold_heads)
 
         if self.apply_mtl:
-            aux_loss, pred_tags = self._predict_tags(comb_states_2d, self.encoder.mask, batch_stats,
+            aux_loss, aux_acc, pred_tags = self._predict_tags(final_states, self.encoder.mask, batch_stats,
                 sorted_tags=gold_aux_tags)
 
-        if self.debug or self.visualise:
-            self.arcs = cuda.to_cpu(F.softmax(arcs).data)
-
-        if extract_attn:
-            u_arcs = arcs.data
-            u_p_arcs = self.xp.argmax(u_arcs, axis=1)
-            u_arc_preds = cuda.to_cpu(u_p_arcs)
-
-        if self.treeify != 'none':
-            # TODO: check multiple roots issue
-            # We process the head scores to apply tree constraints
-            arcs = cuda.to_cpu(arcs.data)
-            # arcs are batch_size x sent_len + 1 x sent_len
-            # axis 1 has the scores over the sentence
-            # axis 2 is one shorter because we don't predict for root
-            dd = DependencyDecoder()
-            # sent length not taking root into account
-            sent_lengths = [len(sent) for sent in sorted_inputs[0]]
-            arc_preds = []
-            if self.treeify == 'chu':
-                # Just remove cycles, non-projective trees are ok
-                for l, score_mat in zip(sent_lengths, arcs):
-                    # remove fallout from batch size
-                    trunc_score_mat = score_mat[:l+1, :l]
-                    # DependencyDecoder expects a square matrix - fill root col with zeros
-                    trunc_score_mat = np.pad(trunc_score_mat, ((0, 0), (1, 0)), 'constant')
-                    nproj_arcs = dd.parse_nonproj(trunc_score_mat)[1:]
-                    arc_preds.append(nproj_arcs)
-
-                # arc_preds = np.array([dd.parse_nonproj(each)[1:] for each in pd_arcs])
-            elif self.treeify == 'eisner':
-                # Remove cycles and make sure trees are projective
-                for l, score_mat in zip(sent_lengths, arcs):
-                    # remove fallout from batch size
-                    trunc_score_mat = score_mat[:l+1, :l]
-                    # DependencyDecoder expects a square matrix - fill root col with zeros
-                    trunc_score_mat = np.pad(trunc_score_mat, ((0, 0), (1, 0)), 'constant')
-                    proj_arcs = dd.parse_proj(trunc_score_mat)[1:]
-                    arc_preds.append(proj_arcs)
+        # check if we only want to perform tagging, no need to predict head/label
+        if self.mtl_weight != 1.0:
+            # perform subword attention
+            if self.sub_attn:
+                self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
+                arcs, p_reps, sent_attn_vectors = self._predict_heads_attn(final_states, self.subword_embeds, self.encoder.mask, sent_sub_lengths, batch_stats,
+                    extract_attn, sorted_heads=gold_heads)
             else:
-                raise ValueError('Unexpected method')
-            p_arcs = self.encoder.transpose_batch(arc_preds, create_var=False)
-        else:
-            # We ignore tree constraints - head predictions may create cycles
-            # we pass predict_labels the gpu object
-            arcs = arcs.data
-            p_arcs = self.xp.argmax(arcs, axis=1)
-            arc_preds = cuda.to_cpu(p_arcs)
-            p_arcs = np.swapaxes(p_arcs, 0, 1)
+                arcs = self._predict_heads(final_states, self.encoder.mask, batch_stats,
+                    sorted_heads=gold_heads)
+
+            # extract attention vector
+            if extract_attn:
+                u_arcs = arcs.data
+                u_p_arcs = self.xp.argmax(u_arcs, axis=1)
+                u_arc_preds = cuda.to_cpu(u_p_arcs)
+
+            if self.debug or self.visualise:
+                self.arcs = cuda.to_cpu(F.softmax(arcs).data)
+
+            if self.treeify != 'none':
+                # TODO: check multiple roots issue
+                # We process the head scores to apply tree constraints
+                arcs = cuda.to_cpu(arcs.data)
+                # arcs are batch_size x sent_len + 1 x sent_len
+                # axis 1 has the scores over the sentence
+                # axis 2 is one shorter because we don't predict for root
+                dd = DependencyDecoder()
+                # sent length not taking root into account
+                sent_lengths = [len(sent) for sent in sorted_inputs[0]]
+                arc_preds = []
+                if self.treeify == 'chu':
+                    # Just remove cycles, non-projective trees are ok
+                    for l, score_mat in zip(sent_lengths, arcs):
+                        # remove fallout from batch size
+                        trunc_score_mat = score_mat[:l+1, :l]
+                        # DependencyDecoder expects a square matrix - fill root col with zeros
+                        trunc_score_mat = np.pad(trunc_score_mat, ((0, 0), (1, 0)), 'constant')
+                        nproj_arcs = dd.parse_nonproj(trunc_score_mat)[1:]
+                        arc_preds.append(nproj_arcs)
+
+                    # arc_preds = np.array([dd.parse_nonproj(each)[1:] for each in pd_arcs])
+                elif self.treeify == 'eisner':
+                    # Remove cycles and make sure trees are projective
+                    for l, score_mat in zip(sent_lengths, arcs):
+                        # remove fallout from batch size
+                        trunc_score_mat = score_mat[:l+1, :l]
+                        # DependencyDecoder expects a square matrix - fill root col with zeros
+                        trunc_score_mat = np.pad(trunc_score_mat, ((0, 0), (1, 0)), 'constant')
+                        proj_arcs = dd.parse_proj(trunc_score_mat)[1:]
+                        arc_preds.append(proj_arcs)
+                else:
+                    raise ValueError('Unexpected method')
+                p_arcs = self.encoder.transpose_batch(arc_preds, create_var=False)
+            else:
+                # We ignore tree constraints - head predictions may create cycles
+                # we pass predict_labels the gpu object
+                arcs = arcs.data
+                p_arcs = self.xp.argmax(arcs, axis=1)
+                arc_preds = cuda.to_cpu(p_arcs)
+                p_arcs = np.swapaxes(p_arcs, 0, 1)
 
 
-        if self.sub_attn:
-            lbls = self._predict_labels_attn(comb_states_2d, p_arcs, p_reps, sent_attn_vectors, gold_heads,
-                    batch_stats, extract_attn, sorted_labels=sorted_labels)
-        else:
-            lbls = self._predict_labels(comb_states_2d, p_arcs, gold_heads,
-                    batch_stats, sorted_labels=sorted_labels)
+            if self.sub_attn:
+                lbls = self._predict_labels_attn(final_states, p_arcs, p_reps, sent_attn_vectors, gold_heads,
+                        batch_stats, extract_attn, sorted_labels=sorted_labels)
+            else:
+                lbls = self._predict_labels(final_states, p_arcs, gold_heads,
+                        batch_stats, sorted_labels=sorted_labels)
 
-        if self.debug or self.visualise:
-            self.lbls = cuda.to_cpu(F.softmax(lbls).data)
+            if self.debug or self.visualise:
+                self.lbls = cuda.to_cpu(F.softmax(lbls).data)
 
-        lbls = cuda.to_cpu(lbls.data)
+            lbls = cuda.to_cpu(lbls.data)
 
-        # we only bother actually getting the softmax values
-        # if we are to visualise the results
-        if self.visualise:
-            # replace logits with prob from softmax - we pad with the exp
-            # of the MIN_PAD - since that would have been the value if we passed
-            # the MIN_PAD through the softmax
-            # arcs = F.softmax(arcs)
-            # arcs = F.pad(arcs, [(0, int(batch_size - self.num_active)), (0, 0)],
-            #              'constant', constant_values=self.xp.exp(self.MIN_PAD))
-            # lbls = F.softmax(lbls)
-            # lbls = F.pad(lbls, [(0, int(batch_size - self.num_active)), (0, 0)],
-            #              'constant', constant_values=self.xp.exp(self.MIN_PAD))
-            self._visualise(self.arcs[0], self.lbls[0], sorted_heads[0], sorted_labels[0])
-        # else:
-            # arcs = F.pad(arcs, [(0, int(batch_size - self.num_active)), (0, 0)],
-            #              'constant', constant_values=self.MIN_PAD)
-            # lbls = F.pad(lbls, [(0, int(batch_size - self.num_active)), (0, 0)],
-            #              'constant', constant_values=self.MIN_PAD)
+            # we only bother actually getting the softmax values
+            # if we are to visualise the results
+            if self.visualise:
+                # replace logits with prob from softmax - we pad with the exp
+                # of the MIN_PAD - since that would have been the value if we passed
+                # the MIN_PAD through the softmax
+                # arcs = F.softmax(arcs)
+                # arcs = F.pad(arcs, [(0, int(batch_size - self.num_active)), (0, 0)],
+                #              'constant', constant_values=self.xp.exp(self.MIN_PAD))
+                # lbls = F.softmax(lbls)
+                # lbls = F.pad(lbls, [(0, int(batch_size - self.num_active)), (0, 0)],
+                #              'constant', constant_values=self.xp.exp(self.MIN_PAD))
+                self._visualise(self.arcs[0], self.lbls[0], sorted_heads[0], sorted_labels[0])
+            # else:
+                # arcs = F.pad(arcs, [(0, int(batch_size - self.num_active)), (0, 0)],
+                #              'constant', constant_values=self.MIN_PAD)
+                # lbls = F.pad(lbls, [(0, int(batch_size - self.num_active)), (0, 0)],
+                #              'constant', constant_values=self.MIN_PAD)
+
 
         # normalize loss over all tokens seen
+        _lambda = 1 - self.mtl_weight
         total_tokens = np.sum(self.encoder.col_lengths)
-        self.loss = (self.loss + aux_loss) / total_tokens
+        self.loss = (_lambda * self.loss + (1 - _lambda) * aux_loss) / total_tokens
+        self.acc = aux_acc
 
         inv_perm_indices = [perm_indices.index(i) for i in range(len(perm_indices))]
         if self.debug or self.visualise:
             self.arcs = self.arcs[inv_perm_indices]
             self.lbls = self.lbls[inv_perm_indices]
-        # permute back to correct batch order
-        # arcs = arc_preds[inv_perm_indices]        
-
-        arcs = [arc_preds[i] for i in inv_perm_indices]
-        lbls = lbls[inv_perm_indices]
-
-        lbl_preds = np.argmax(lbls, axis=1)
 
         input_sent_lengths = [len(sent) for sent in inputs[0]]
+        if self.apply_mtl:
+            final_tags = []
+            for i in range(max_sent_len - 1):
+                for j, tag_id in enumerate(pred_tags[i]):
+                    if i == 0:
+                        final_tags.append([tag_id.data])
+                    else:
+                        final_tags[j].append(tag_id.data)
+            final_tags = [self.xp.array(f) for f in final_tags]
+            tags = [final_tags[i] for i in inv_perm_indices]
+            tag_preds = [tag_p[:l] for tag_p, l in zip(tags, input_sent_lengths)]
+        else:
+            tags = None
+            tag_preds = None
 
-        arc_preds = [arc_p[:l] for arc_p, l in zip(arcs, input_sent_lengths)]
-        lbl_preds = [lbl_p[:l] for lbl_p, l in zip(lbl_preds, input_sent_lengths)]
+
+        if self.mtl_weight != 1.0:
+            arcs = [arc_preds[i] for i in inv_perm_indices]
+            lbls = lbls[inv_perm_indices]
+            lbl_preds = np.argmax(lbls, axis=1)
+
+            arc_preds = [arc_p[:l] for arc_p, l in zip(arcs, input_sent_lengths)]
+            lbl_preds = [lbl_p[:l] for lbl_p, l in zip(lbl_preds, input_sent_lengths)]
+        else:
+            arc_preds, lbl_preds = None, None
+        
 
         if extract_attn:
             print('Unlabeled head predictions:')
@@ -714,9 +751,9 @@ class GraphParser(chainer.Chain):
                 print(u_pred)
 
         if not extract_feat:
-            return arc_preds, lbl_preds
+            return arc_preds, lbl_preds, tag_preds
         else:
-            states = F.reshape(comb_states_2d, (max_sent_len, batch_size, -1))
+            states = F.reshape(final_states, (max_sent_len, batch_size, -1))
             states = F.separate(states, axis=1)
             sorted_states = [states[i] for i in inv_perm_indices]
             
@@ -732,7 +769,7 @@ class GraphParser(chainer.Chain):
                 sent_embs.append(embs[i][1:-1])
             sorted_sent_embs = [sent_embs[i] for i in inv_perm_indices]
 
-            return arc_preds, lbl_preds, sorted_states, sorted_sent_embs
+            return arc_preds, lbl_preds, tag_preds, sorted_states, sorted_sent_embs
 
 
     def _visualise(self, arcs, lbls, gold_heads, gold_labels):

@@ -100,11 +100,12 @@ class SentenceEncoder(chainer.Chain):
             self.embedder = embedder
             # we already have sorted input, so we removed the code that permutes
             # input and output (hence why we don't use the chainer class)
+            in_size = self.embedder.out_size
             self.rnn = NStepLSTMBase(num_layers,
-                                     self.embedder.out_size,
-                                     num_units,
-                                     dropout,
-                                     use_bi_direction=use_bilstm)
+                             in_size,
+                             num_units,
+                             dropout,
+                             use_bi_direction=use_bilstm)
 
         self.use_bilstm = use_bilstm
         self.num_layers = num_layers
@@ -202,7 +203,22 @@ class SentenceEncoder(chainer.Chain):
         # split back to batch size
         batch_embeddings = F.split_axis(embeddings, batch_split, axis=0)
 
-        _, _, states = self.rnn(None, None, batch_embeddings)
+        
+        states = batch_embeddings
+        _, _, states = self.rnn(None, None, states)
+        # rnn_states = []
+        # for n in range(self.num_layers):
+            
+        #     d_states = []
+        #     for idx, s in enumerate(states):
+        #         d_states.append(F.dropout(s, self.dropout))
+        #     states = d_states
+        #     rnn_states.append(states)
+
+        # print(d_states[0].data)
+
+        # import pdb
+        # pdb.set_trace()
 
         # we don't use the START and END encoded states in attention
         # so we get rid of them from states and col_lengths
@@ -234,7 +250,9 @@ class SentenceEncoder(chainer.Chain):
                               ((0, self.batch_size - col_len), (0,0)),
                               'constant',
                               constant_values=0.))
-        states = F.vstack(keep)
+
+        states = F.vstack(keep) 
+
         # discard first and last column. The first column always contains
         # START. The last column contains only END but END tokens are
         # spread throughout.
@@ -256,10 +274,11 @@ class SentenceEncoder(chainer.Chain):
             self.embedder.word_encoder.clear_cache()
 
         if not extract_feat:
-            # returns 2d (batch_size x max_sentence_length) x num_hidden
+            # returns array (layers) of 2d (batch_size x max_sentence_length) x num_hidden
             return states, None
         else:
             return states, batch_embeddings
+
 
     def attn_subword_embeds(self, units_dim, max_sub_len, *in_seqs):
 

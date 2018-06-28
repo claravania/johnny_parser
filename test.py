@@ -1,6 +1,7 @@
 import chainer
 import pickle
 import pdb
+import os
 from tqdm import tqdm
 from johnny.dep import UDepLoader
 from johnny.metrics import Average, UAS, LAS
@@ -16,7 +17,7 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
     with open(vocab_path, 'rb') as pf:
         vocabs = pickle.load(pf)
 
-    (v_word, v_pos, v_arcs) = vocabs
+    (v_word, v_pos, v_arcs, v_aux) = vocabs
     v_word.save_txt('word_vocab_attn.' + bp.dataset.lang)
 
     test_rows = data_to_rows(test_set, vocabs, bp)
@@ -44,6 +45,7 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
         chainer.no_backprop_mode():
 
         mean_loss = Average()
+        mean_acc = Average()
         u_scorer = UAS()
         l_scorer = LAS()
         index = 0
@@ -68,7 +70,7 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
 
             batch_size = 0
             batch_id += 1
-            word_batch, pos_batch, head_batch, label_batch = zip(*batch)
+            word_batch, pos_batch, head_batch, label_batch, aux_label_batch = zip(*batch)
 
             if extract_attn:
                 print('Batch:', batch_id)
@@ -79,11 +81,11 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
                                              heads=None, labels=None)
             else:
                 if not extract_feat:
-                    arc_preds, lbl_preds = model(flags, word_batch, pos_batch,
-                                         heads=head_batch, labels=label_batch)
+                    arc_preds, lbl_preds, tag_preds = model(flags, word_batch, pos_batch,
+                                         heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
                 else:
-                    arc_preds, lbl_preds, states, embs = model(flags, word_batch, pos_batch,
-                                         heads=head_batch, labels=label_batch)
+                    arc_preds, lbl_preds, tag_preds, states, embs = model(flags, word_batch, pos_batch,
+                                         heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
 
             if extract_feat:
                 true_bs = len(word_batch)
@@ -123,22 +125,26 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
                 print()
 
             loss = model.loss
+            acc = model.acc
 
             loss_value = float(loss.data)
+            acc_value = float(acc.data)
 
-            for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
-                u_scorer(arcs=(p_arcs, t_arcs))
-                l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
+            if arc_preds and lbl_preds:
+                for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
+                    u_scorer(arcs=(p_arcs, t_arcs))
+                    l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
 
-                test_set[index].set_heads(p_arcs)
-                str_labels = [v_arcs_rev_index[l] for l in p_lbls]
-                test_set[index].set_labels(str_labels)
+                    test_set[index].set_heads(p_arcs)
+                    str_labels = [v_arcs_rev_index[l] for l in p_lbls]
+                    test_set[index].set_labels(str_labels)
 
-                index += 1
-                batch_size += 1
+                    index += 1
+                    batch_size += 1
 
             mean_loss(loss_value)
-            out_str = tf_str.format(batch_size, mean_loss.score, u_scorer.score, l_scorer.score)
+            mean_acc(acc_value)
+            out_str = tf_str.format(batch_size, mean_loss.score, u_scorer.score, l_scorer.score, mean_acc.score)
             pbar.set_description(out_str)
             pbar.update(batch_size)
 
@@ -152,7 +158,8 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
 
     stats = {'test_mean_loss': mean_loss.score,
              'test_uas': u_scorer.score,
-             'test_las': l_scorer.score}
+             'test_las': l_scorer.score,
+             'aux_acc': mean_acc.score}
 
     # TODO: save these
     bp.test_results = stats
@@ -187,6 +194,7 @@ if __name__ == "__main__":
     UNLABELLED = args.unlabelled
     TREEIFY = args.treeify
     extract_feat = args.extract_feat
+    extract_attn = args.extract_attn
     lang = args.lang
 
     blueprint = Blueprint.from_file(args.blueprint)

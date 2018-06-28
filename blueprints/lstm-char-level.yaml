@@ -43,9 +43,9 @@ model:
   arc_dropout: 0.2
   lbl_dropout: 0.6
   num_labels: dunno
-  num_tags: dunno
   treeify: none
-  apply_mtl: True
+  apply_mtl: case
+  mtl_weight: 1.0
 optimizer:
   grad_clip: 5
   learning_rate: 0.001

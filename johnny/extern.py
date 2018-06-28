@@ -383,7 +383,8 @@ class NStepLSTMBase(link.ChainList):
         in_size (int): Dimensionality of input vectors.
         out_size (int): Dimensionality of hidden states and output vectors.
         dropout (float): Dropout ratio.
-        use_bi_direction (bool): if ``True``, use Bi-directional LSTM.
+        use_bi_directio
+        n (bool): if ``True``, use Bi-directional LSTM.
     .. seealso::
         :func:`chainer.functions.n_step_lstm`
         :func:`chainer.functions.n_step_bilstm`
@@ -425,12 +426,21 @@ class NStepLSTMBase(link.ChainList):
         self.direction = direction
         self.rnn = rnn.n_step_bilstm if use_bi_direction else rnn.n_step_lstm
 
+    def init_hx_1(self, xs):
+        first = xs[0]
+        shape = (1 * self.direction, first.shape[0], self.out_size)
+        with cuda.get_device_from_id(self._device_id):
+            hx = variable.Variable(self.xp.zeros(shape, dtype=first.dtype))
+        return hx
+
+
     def init_hx(self, xs):
         first = xs[0]
         shape = (self.n_layers * self.direction, first.shape[0], self.out_size)
         with cuda.get_device_from_id(self._device_id):
             hx = variable.Variable(self.xp.zeros(shape, dtype=first.dtype))
         return hx
+
 
     def __call__(self, hx, cx, xs, **kwargs):
         """__call__(self, hx, cx, xs)
@@ -457,22 +467,57 @@ class NStepLSTMBase(link.ChainList):
         # indices = n_step_rnn.argsort_list_descent(xs)
 
         # xs = n_step_rnn.permutate_list(xs, indices, inv=False)
+
+        # hxs = []
+        # if hx is None:
+        #     hxs = [None for _ in six.moves.range(self.n_layers)]
+        # else:
+        #     hxs = [hx[i] for i in six.moves.range(self.n_layers)]
+        
+        # cxs = []
+        # if cx is None:
+        #     cxs = [None for _ in six.moves.range(self.n_layers)]
+        # else:
+        #     cxs = [cx[i] for i in six.moves.range(self.n_layers)]
+
+        # states = xs
+        # lyr_idx = 0
+        # lyr_states = []
+        # for i in six.moves.range(self.n_layers):
+
+        #     if hxs[i] is None:
+        #         hxs[i] = self.init_hx(xs)
+        #     # else:
+        #     #     hx = permutate.permutate(hx, indices, axis=1, inv=False)
+
+        #     if cxs[i] is None:
+        #         cxs[i] = self.init_hx(xs)
+        #     # else:
+        #     #     cx = permutate.permutate(cx, indices, axis=1, inv=False)
+
+        #     # trans_x = transpose_sequence.transpose_sequence(xs)
+
+        #     ws = [[w.w0, w.w1, w.w2, w.w3, w.w4, w.w5, w.w6, w.w7] for w in self[lyr_idx:lyr_idx+2]]
+        #     bs = [[w.b0, w.b1, w.b2, w.b3, w.b4, w.b5, w.b6, w.b7] for w in self[lyr_idx:lyr_idx+2]]
+        #     lyr_idx += 2
+
+        #     hy, cy, states = self.rnn(
+        #         1, self.dropout, hxs[i], cxs[i], ws, bs, states)
+
+        #     lyr_states.append(states)
+
+        # print(states[0].data)
+
         if hx is None:
             hx = self.init_hx(xs)
-        # else:
-        #     hx = permutate.permutate(hx, indices, axis=1, inv=False)
 
         if cx is None:
             cx = self.init_hx(xs)
-        # else:
-        #     cx = permutate.permutate(cx, indices, axis=1, inv=False)
-
-        # trans_x = transpose_sequence.transpose_sequence(xs)
 
         ws = [[w.w0, w.w1, w.w2, w.w3, w.w4, w.w5, w.w6, w.w7] for w in self]
         bs = [[w.b0, w.b1, w.b2, w.b3, w.b4, w.b5, w.b6, w.b7] for w in self]
 
-        hy, cy, trans_y = self.rnn(
+        hy, cy, states = self.rnn(
             self.n_layers, self.dropout, hx, cx, ws, bs, xs)
 
         # hy = permutate.permutate(hy, indices, axis=1, inv=True)
@@ -480,4 +525,4 @@ class NStepLSTMBase(link.ChainList):
         # ys = transpose_sequence.transpose_sequence(trans_y)
         # ys = n_step_rnn.permutate_list(ys, indices, inv=True)
 
-        return hy, cy, trans_y
+        return hy, cy, states

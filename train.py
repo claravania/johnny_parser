@@ -209,11 +209,12 @@ def visualise_dict(d, num_items=50):
 
 def train_epoch(model, optimizer, buckets, data_size):
     iters = 0
-    tf_str = 'Train: batch_size={0:d}, mean loss={1:.2f}, mean UAS={2:.3f} mean LAS={3:.3f}'
+    tf_str = 'Train: batch_size={0:d}, mean loss={1:.2f} mean acc={4:.2f}, mean UAS={2:.3f} mean LAS={3:.3f}'
     with tqdm(total=data_size, leave=False) as pbar, \
         chainer.using_config('train', True):
 
         mean_loss = Average()
+        mean_acc = Average()
         u_scorer = UAS()
         l_scorer = LAS()
 
@@ -222,19 +223,27 @@ def train_epoch(model, optimizer, buckets, data_size):
             aux_label_batch = seqs.pop()
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+
             loss = model.loss
+            acc = model.acc
+
             model.cleargrads()
             loss.backward()
             optimizer.update()
 
             loss_value = float(loss.data)
+            acc_value = float(acc.data)
 
-            for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
-                u_scorer(arcs=(p_arcs, t_arcs))
-                l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
+            if arc_preds and lbl_preds:
+                for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
+                    u_scorer(arcs=(p_arcs, t_arcs))
+                    l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
+
             mean_loss(loss_value)
-            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score)
+            mean_acc(acc_value)
+
+            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score, mean_acc.score)
             pbar.set_description(out_str)
             iters += len(batch)
             pbar.update(len(batch))
@@ -244,7 +253,8 @@ def train_epoch(model, optimizer, buckets, data_size):
     stats = {'train_time': time_taken,
              'train_mean_loss': mean_loss.score,
              'train_uas': u_scorer.score,
-             'train_las': l_scorer.score}
+             'train_las': l_scorer.score,
+             'train_aux_acc': mean_acc.score}
     return stats
 
 
@@ -252,13 +262,14 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
     def label_stat(stat):
         return '%s_%s' % (label, stat)
 
-    tf_str = ('Eval - %s : batch_size={0:d}, mean loss={1:.2f}, '
+    tf_str = ('Eval - %s : batch_size={0:d}, mean loss={1:.2f}, mean acc={4:.2f}, '
               'mean UAS={2:.3f} mean LAS={3:.3f}' % label)
     with tqdm(total=data_size, leave=False) as pbar, \
         chainer.using_config('train', False), \
         chainer.no_backprop_mode():
 
         mean_loss = Average()
+        mean_acc = Average()
         u_scorer = UAS()
         l_scorer = LAS(num_labels=num_labels)
         for batch in buckets:
@@ -267,22 +278,27 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
             aux_label_batch = seqs.pop()
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
             loss = model.loss
-
+            acc = model.acc
             loss_value = float(loss.data)
+            acc_value = float(acc.data)
 
-            for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
-                u_scorer(arcs=(p_arcs, t_arcs))
-                l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
+            if arc_preds and lbl_preds:
+                for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
+                    u_scorer(arcs=(p_arcs, t_arcs))
+                    l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
+
             mean_loss(loss_value)
-            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score)
+            mean_acc(acc_value)
+            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score, mean_acc.score)
             pbar.set_description(out_str)
             pbar.update(len(batch))
 
     stats = {label_stat('mean_loss'): mean_loss.score,
              label_stat('uas'): u_scorer.score,
-             label_stat('las'): l_scorer.score}
+             label_stat('las'): l_scorer.score,
+             label_stat('mean_aux_acc'): mean_acc.score}
             
     return stats
 
@@ -311,6 +327,7 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
 
     e = 0
     best_valid_las = 0.
+    best_valid_acc = 0.
     patience = conf.checkpoint.patience
     # checkpoint.every defines how often to checkpoint in multiples of
     # the batch size.  if conf.every is <= 0 then we checkpoint each epoch
@@ -335,6 +352,7 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
 
         if checkpoint_stats['valid_las'] > best_valid_las:
             best_valid_las = checkpoint_stats['valid_las']
+            best_valid_acc = checkpoint_stats['valid_mean_aux_acc']
             patience = conf.checkpoint.patience
         else:
             patience -= 1
@@ -343,9 +361,10 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
         current_iters += cp_iters
         e = int(current_iters / iters_per_epoch)
         current_checkpoint += 1
-        pbar.set_description('Epoch %d - Patience %d - Best LAS: %.2f UAS: %.2f'
+        pbar.set_description('Epoch %d - Patience %d - Best LAS: %.2f UAS: %.2f - Aux. acc: %.2f'
                              % (e, patience, best_valid_las * 100,
-                                checkpoint_stats['valid_uas'] * 100))
+                                checkpoint_stats['valid_uas'] * 100,
+                                checkpoint_stats['valid_mean_aux_acc'] * 100))
         pbar.update()
 
         if checkpoint_callback is not None:
