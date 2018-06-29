@@ -218,6 +218,7 @@ def train_epoch(model, optimizer, buckets, data_size):
         u_scorer = UAS()
         l_scorer = LAS()
 
+        total_batch = 0
         for batch in buckets:
             seqs = list(zip(*batch))
             aux_label_batch = seqs.pop()
@@ -250,6 +251,7 @@ def train_epoch(model, optimizer, buckets, data_size):
             if iters >= data_size:
                 break
         time_taken = pbar._time() - pbar.start_t
+    
     stats = {'train_time': time_taken,
              'train_mean_loss': mean_loss.score,
              'train_uas': u_scorer.score,
@@ -333,6 +335,7 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
     # the batch size.  if conf.every is <= 0 then we checkpoint each epoch
     cp_iters = conf.batch_size * conf.checkpoint.every \
         if conf.checkpoint.every > 0 else len(train_rows)
+
     iters_per_epoch = len(train_rows)
     current_iters = 0
     current_checkpoint = 0
@@ -350,13 +353,21 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
                            label='valid', num_labels=conf.model.num_labels)
         checkpoint_stats.update(**stats)
 
-        if checkpoint_stats['valid_las'] > best_valid_las:
-            best_valid_las = checkpoint_stats['valid_las']
-            best_valid_acc = checkpoint_stats['valid_mean_aux_acc']
-            patience = conf.checkpoint.patience
+        if conf.model.mtl_weight < 1.0:
+            if checkpoint_stats['valid_las'] > best_valid_las:
+                best_valid_las = checkpoint_stats['valid_las']
+                best_valid_acc = checkpoint_stats['valid_mean_aux_acc']
+                patience = conf.checkpoint.patience
+            else:
+                patience -= 1
+            checkpoint_stats.update(patience=patience)
         else:
-            patience -= 1
-        checkpoint_stats.update(patience=patience)
+            if checkpoint_stats['valid_mean_aux_acc'] > best_valid_acc:
+                best_valid_acc = checkpoint_stats['valid_mean_aux_acc']
+                patience = conf.checkpoint.patience
+            else:
+                patience -= 1
+            checkpoint_stats.update(patience=patience)
 
         current_iters += cp_iters
         e = int(current_iters / iters_per_epoch)

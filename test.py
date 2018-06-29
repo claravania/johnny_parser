@@ -9,7 +9,11 @@ from train import visualise_dict, data_to_rows, to_batches
 from mlconf import ArgumentParser, Blueprint
 
 
-def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None, label_file=None):
+def test_loop(args, bp, test_set, feat_file=None, label_file=None):
+
+    extract_attn = args.extract_attn
+    extract_feat = args.extract_feat
+    output_tags = args.output_tags
 
     model_path = bp.model_path
     vocab_path = bp.vocab_path
@@ -18,11 +22,14 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
         vocabs = pickle.load(pf)
 
     (v_word, v_pos, v_arcs, v_aux) = vocabs
-    v_word.save_txt('word_vocab_attn.' + bp.dataset.lang)
+
+    if extract_attn:
+        v_word.save_txt('word_vocab_attn.' + bp.dataset.lang)
 
     test_rows = data_to_rows(test_set, vocabs, bp)
 
     v_arcs_rev_index = dict((val, key) for key, val in v_arcs.index.items())
+    v_aux_rev_index = dict((val, key) for key, val in v_aux.index.items())
     
     # Remove all info we are going to predict
     # to make sure we don't make a fool of ourselves
@@ -63,9 +70,13 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
             flabel = open(label_file, 'w')
             ffeat = open(feat_file, 'w')
 
+        if output_tags:
+            ftags = open(output_tags, 'w')
+
         batch_id = 0
         idx_sample = 0
         num_tokens = 0
+
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
 
             batch_size = 0
@@ -116,13 +127,19 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
                     ffeat.flush()
                 idx_sample += true_bs
 
-
             if extract_attn:
                 print('Data:')
                 for it in range(len(word_batch)):
                     print(word_batch[it], ' ||| ', pos_batch[it], '|||', tuple(arc_preds[it]), '|||', 
                         tuple(lbl_preds[it]), ' ||| ', head_batch[it], ' ||| ', label_batch[it])
                 print()
+
+
+            # if output_tags:
+            #     for it in range(len(word_batch)):
+            #         tags = [t for t in tag_preds[it]]
+            #         gold_tags = list(aux_label_batch[it])                    
+            #         ftags.write(str(tags) + ' ||| ' + str(gold_tags) + '\n')
 
             loss = model.loss
             acc = model.acc
@@ -138,6 +155,16 @@ def test_loop(bp, test_set, extract_feat=None, extract_attn=None, feat_file=None
                     test_set[index].set_heads(p_arcs)
                     str_labels = [v_arcs_rev_index[l] for l in p_lbls]
                     test_set[index].set_labels(str_labels)
+
+                    index += 1
+                    batch_size += 1
+            else:
+                for tags, t_arcs, t_lbls in zip(tag_preds, head_batch, label_batch):
+                    test_set[index].set_heads(t_arcs)
+                    str_labels = [v_arcs_rev_index[l] for l in t_lbls]
+                    test_set[index].set_labels(str_labels)
+                    str_tags = [v_aux_rev_index[l] for l in tags]
+                    test_set[index].set_feats(str_tags)
 
                     index += 1
                     batch_size += 1
@@ -185,6 +212,8 @@ if __name__ == "__main__":
                         help='Whether to extract features or not.')
     parser.add_argument('--extract_attn', type=str, default=None,
                         help='Whether to extract attention vectors (for attention model only).')
+    parser.add_argument('--output_tags', type=str, default=None,
+                        help='Whether to output tag predictions.')
     parser.add_argument('--lang', type=str, default='english',
                         help='Language (optional, only for extracting feature). ')
 
@@ -214,7 +243,7 @@ if __name__ == "__main__":
         feat_file = os.path.join(path, filename + '.feat')
         label_file = os.path.join(path, filename + '.lbl')
 
-    test_loop(blueprint, test_data, extract_feat, extract_attn, feat_file=feat_file, label_file=label_file)
+    test_loop(args, blueprint, test_data, feat_file=feat_file, label_file=label_file)
 
     if CONLL_OUT:
         test_data.save(blueprint.model_path.replace('.model', '.conllu'))

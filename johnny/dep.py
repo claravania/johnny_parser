@@ -191,6 +191,10 @@ class Sentence(object):
         for t, l in zip(self.tokens, labels):
             t.deprel = l
 
+    def set_feats(self, feats):
+        for t, f in zip(self.tokens, feats):
+            t.feats = [f]
+
     def unset_heads(self):
         for t in self.tokens:
             t.head = None
