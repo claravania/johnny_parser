@@ -67,11 +67,11 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
         BATCH_SIZE = 256
 
         if extract_feat:
-            flabel = open(label_file, 'w')
-            ffeat = open(feat_file, 'w')
+            flabel = open(label_file, 'w', encoding='utf-8')
+            ffeat = open(feat_file, 'w', encoding='utf-8')
 
         if output_tags:
-            ftags = open(output_tags, 'w')
+            ftags = open(output_tags, 'w', encoding='utf-8')
 
         batch_id = 0
         idx_sample = 0

@@ -137,7 +137,7 @@ class Vocab(object):
             pickle.dump(self, f)
 
     def save_txt(self, filepath):
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             for key, value in sorted(RESERVED.items(), key=lambda x: x[1]):
                 f.write(str(value) + ' ' + key + '\n')
             f.write(str(len(RESERVED)) + ' ' + 'UNK' + '\n')
@@ -199,7 +199,7 @@ class UPOSVocab(object):
         return tuple(self.index[tag] for tag in tags)
 
     def save_txt(self, filepath):
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             for key, value in sorted(self.index.items(), key=lambda x: x[1]):
                 f.write(str(value) + ' ' + key + '\n')
 
@@ -275,7 +275,7 @@ class UDepVocab(object):
         return tuple(self.index[tag] for tag in tags)
 
     def save_txt(self, filepath):
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             for key, value in sorted(self.index.items(), key=lambda x: x[1]):
                 f.write(str(value) + ' ' + key + '\n')
 
@@ -305,7 +305,7 @@ class AuxVocab(object):
         return tuple(self.index[tag] for tag in tags)
 
     def save_txt(self, filepath):
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             for key, value in sorted(self.index.items(), key=lambda x: x[1]):
                 f.write(str(value) + ' ' + key + '\n')
 
