@@ -30,7 +30,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
 
     v_arcs_rev_index = dict((val, key) for key, val in v_arcs.index.items())
     v_aux_rev_index = dict((val, key) for key, val in v_aux.index.items())
-    
+
     # Remove all info we are going to predict
     # to make sure we don't make a fool of ourselves
     # if we have a bug and gold data stays in its place
@@ -163,6 +163,8 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     test_set[index].set_heads(t_arcs)
                     str_labels = [v_arcs_rev_index[l] for l in t_lbls]
                     test_set[index].set_labels(str_labels)
+
+                    tags = tuple(tags.tolist())
                     str_tags = [v_aux_rev_index[l] for l in tags]
                     test_set[index].set_feats(str_tags)
 
