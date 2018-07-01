@@ -53,6 +53,28 @@ def to_ngrams(word, n=1):
     return tuple(word[i:i+n] for i in range(len(word)-n+1))
 
 
+def to_ngrams_feat(word, morph, n=1):
+    assert(n > 0)
+    case = '_'
+    for m in morph:
+        tag, value = m.split('=')
+        if tag == 'Case':
+            case = value
+    if n == 1:
+        tok = list(word)
+    else:
+        tok = list(word[i:i+n] for i in range(len(word)-n+1))
+    tok.append(case)
+    return tuple(tok)
+
+
+def create_ngrams(conf, word, feat, n=1):
+    if conf.model.add_feat:
+        return to_ngrams_feat(word, feat, n)
+    else:
+        return to_ngrams(word, n)
+
+
 def to_morphs(lemma, upostags, morphs, in_feats, pos_morph=False):
     if pos_morph:
         feat_bundle = [lemma.lower(), upostags]
@@ -93,9 +115,13 @@ def create_vocabs(t_set, conf):
                 for s1, s2, s3 in zip(t_set.lemmas, t_set.upostags, t_set.feats))
     else:
         # character unit
-        t_tokens = (chain.from_iterable(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram)
-                    for w in s)
-                    for s in t_set.words)
+        # t_tokens = (chain.from_iterable(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram)
+        #            for w in s)
+        #            for s in t_set.words)
+        t_tokens = (chain.from_iterable(create_ngrams(conf, preprocess(w, conf.preprocess), f, n=conf.ngram)
+                    for w, f in zip(s1, s2))
+                    for s1, s2 in zip(t_set.words, t_set.feats))
+
 
     v_word = Vocab(out_size=conf.vocab.size,
                    threshold=conf.vocab.threshold).fit(chain.from_iterable(t_tokens))
@@ -146,9 +172,13 @@ def data_to_rows(data, vocabs, conf):
                         for l, upostags, feats in zip(s1, s2, s3))
                         for s1, s2, s3 in zip(data.lemmas, data.upostags, data.feats))
     else:
-        words_indices = tuple(tuple(v.encode(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram))
-                        for w in s)
-                        for s in data.words)
+        # words_indices = tuple(tuple(v.encode(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram))
+        #                for w in s)
+        #                for s in data.words)
+        words_indices = tuple(tuple(v.encode(create_ngrams(conf, preprocess(w, conf.preprocess), f, n=conf.ngram))
+                        for w, f in zip(s1, s2))
+                        for s1, s2 in zip(data.words, data.feats))
+
     pos_indices = tuple(map(vpos.encode, data.upostags))
     labels_indices = tuple(map(varcs.encode, data.arctags))
     heads = data.heads
@@ -171,7 +201,11 @@ def data_to_rows(data, vocabs, conf):
         aux_tags = tuple(aux_tags)
         aux_indices = tuple(map(vaux.encode, aux_tags))
 
-    data_rows = zip(words_indices, pos_indices, heads, labels_indices, aux_indices)
+    if conf.model.apply_mtl:
+        data_rows = zip(words_indices, pos_indices, heads, labels_indices, aux_indices)
+    else:
+        data_rows = zip(words_indices, pos_indices, heads, labels_indices)
+
 
     return tuple(data_rows)
 
@@ -219,22 +253,34 @@ def train_epoch(model, optimizer, buckets, data_size):
         l_scorer = LAS()
 
         total_batch = 0
+        mtl = False
         for batch in buckets:
             seqs = list(zip(*batch))
-            aux_label_batch = seqs.pop()
+
+            if len(seqs) == 5:
+                mtl = True
+                aux_label_batch = seqs.pop()
+            else:
+                aux_label_batch = None
             label_batch = seqs.pop()
             head_batch = seqs.pop()
             arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
 
             loss = model.loss
-            acc = model.acc
 
             model.cleargrads()
             loss.backward()
             optimizer.update()
 
             loss_value = float(loss.data)
-            acc_value = float(acc.data)
+
+            if mtl:
+                acc = model.acc
+                acc_value = float(acc.data)
+                mean_acc(acc_value)
+                tag_acc = mean_acc.score
+            else:
+                tag_acc = 0
 
             if arc_preds and lbl_preds:
                 for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
@@ -242,9 +288,8 @@ def train_epoch(model, optimizer, buckets, data_size):
                     l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
 
             mean_loss(loss_value)
-            mean_acc(acc_value)
 
-            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score, mean_acc.score)
+            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score, tag_acc)
             pbar.set_description(out_str)
             iters += len(batch)
             pbar.update(len(batch))
@@ -256,7 +301,7 @@ def train_epoch(model, optimizer, buckets, data_size):
              'train_mean_loss': mean_loss.score,
              'train_uas': u_scorer.score,
              'train_las': l_scorer.score,
-             'train_aux_acc': mean_acc.score}
+             'train_aux_acc': tag_acc}
     return stats
 
 
@@ -274,33 +319,45 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
         mean_acc = Average()
         u_scorer = UAS()
         l_scorer = LAS(num_labels=num_labels)
+
+        mtl = False
         for batch in buckets:
             # model.reset_state()
             seqs = list(zip(*batch))
-            aux_label_batch = seqs.pop()
+
+            if len(seqs) == 5:
+                mtl = True
+                aux_label_batch = seqs.pop()
+            else:
+                aux_label_batch = None
             label_batch = seqs.pop()
             head_batch = seqs.pop()
             arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
             loss = model.loss
-            acc = model.acc
             loss_value = float(loss.data)
-            acc_value = float(acc.data)
 
+            if mtl:
+                acc = model.acc
+                acc_value = float(acc.data)
+                mean_acc(acc_value)
+                tag_acc = mean_acc.score
+            else:
+                tag_acc = 0
+            
             if arc_preds and lbl_preds:
                 for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
                     u_scorer(arcs=(p_arcs, t_arcs))
                     l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
 
             mean_loss(loss_value)
-            mean_acc(acc_value)
-            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score, mean_acc.score)
+            out_str = tf_str.format(len(batch), mean_loss.score, u_scorer.score, l_scorer.score, tag_acc)
             pbar.set_description(out_str)
             pbar.update(len(batch))
 
     stats = {label_stat('mean_loss'): mean_loss.score,
              label_stat('uas'): u_scorer.score,
              label_stat('las'): l_scorer.score,
-             label_stat('mean_aux_acc'): mean_acc.score}
+             label_stat('mean_aux_acc'): tag_acc}
             
     return stats
 
@@ -422,9 +479,10 @@ if __name__ == "__main__":
     udep = UDepLoader(conf.dataset.name, datafolder=conf.datafolder)
     t_set, v_set = udep.load_train_dev(conf.dataset.lang, verbose=conf.verbose)
 
-    train_size = len(t_set) * conf.train_size // 100
-    t_set = Dataset(t_set[:train_size])
-    print('Training data:', train_size, 'sents')
+    if conf.train_size < 100:
+        train_size = len(t_set) * conf.train_size // 100
+        t_set = Dataset(t_set[:train_size])
+        print('Training data:', train_size, 'sents')
 
     conf.dataset.train_max_sent_len = t_set.len_stats['max_sent_len']
     conf.dataset.dev_max_sent_len = v_set.len_stats['max_sent_len']
@@ -434,7 +492,8 @@ if __name__ == "__main__":
 
     v_word.save_txt('word_vocab.txt')
     v_pos.save_txt('pos_vocab.txt')
-    v_aux.save_txt('aux_vocab.txt')
+    if conf.model.apply_mtl:
+        v_aux.save_txt('aux_vocab.txt')
 
     train_rows = data_to_rows(t_set, vocabs, conf)
     dev_rows = data_to_rows(v_set, vocabs, conf)
@@ -458,7 +517,9 @@ if __name__ == "__main__":
         else:
             conf.model.encoder.embedder.word_encoder.max_sub_len = -1
     conf.model.num_labels = len(v_arc)
-    conf.model.num_aux_lbls = len(v_aux.index)
+
+    if conf.model.apply_mtl:
+        conf.model.num_aux_lbls = len(v_aux.index)
 
     # built_conf has all class representations instantiated
     # we need this here because otherwise we wouldn't be able to set random seed

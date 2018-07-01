@@ -37,6 +37,7 @@ class GraphParser(chainer.Chain):
                  visualise=False,
                  debug=False,
                  sub_attn=False,
+                 add_feat=False,
                  apply_mtl=False,
                  mtl_weight=0.0
                  ):
@@ -55,6 +56,7 @@ class GraphParser(chainer.Chain):
         self.debug = debug
         self.sleep_time = 0.
         self.sub_attn = sub_attn
+        self.add_feat = add_feat
 
         # MTL parameters
         self.apply_mtl = apply_mtl
@@ -574,6 +576,7 @@ class GraphParser(chainer.Chain):
             print(perm_indices)
 
         self.loss = 0
+        self.acc = 0
         aux_loss = 0
         aux_acc = 0
         if calc_loss:

@@ -70,8 +70,6 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
             flabel = open(label_file, 'w', encoding='utf-8')
             ffeat = open(feat_file, 'w', encoding='utf-8')
 
-        if output_tags:
-            ftags = open(output_tags, 'w', encoding='utf-8')
 
         batch_id = 0
         idx_sample = 0
@@ -133,13 +131,6 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     print(word_batch[it], ' ||| ', pos_batch[it], '|||', tuple(arc_preds[it]), '|||', 
                         tuple(lbl_preds[it]), ' ||| ', head_batch[it], ' ||| ', label_batch[it])
                 print()
-
-
-            # if output_tags:
-            #     for it in range(len(word_batch)):
-            #         tags = [t for t in tag_preds[it]]
-            #         gold_tags = list(aux_label_batch[it])                    
-            #         ftags.write(str(tags) + ' ||| ' + str(gold_tags) + '\n')
 
             loss = model.loss
             acc = model.acc
@@ -203,8 +194,8 @@ if __name__ == "__main__":
                         help='Path to .bp blueprint file produces by training.')
     parser.add_argument('--test_file', required=True, type=str,
                         help='Conll file to use for testing')
-    parser.add_argument('--conll_out', action='store_true',
-                        help='If specified writes conll output')
+    parser.add_argument('--conll_out', type=str, default='out.conllu',
+                        help='If specified writes conll output to this file')
     parser.add_argument('--unlabelled', action='store_true',
                         help='whether we are passing labels or not')
     parser.add_argument('--treeify', type=str, default='chu',
@@ -214,7 +205,7 @@ if __name__ == "__main__":
                         help='Whether to extract features or not.')
     parser.add_argument('--extract_attn', type=str, default=None,
                         help='Whether to extract attention vectors (for attention model only).')
-    parser.add_argument('--output_tags', type=str, default=None,
+    parser.add_argument('--output_tags', action='store_true',
                         help='Whether to output tag predictions.')
     parser.add_argument('--lang', type=str, default='english',
                         help='Language (optional, only for extracting feature). ')
@@ -248,4 +239,5 @@ if __name__ == "__main__":
     test_loop(args, blueprint, test_data, feat_file=feat_file, label_file=label_file)
 
     if CONLL_OUT:
-        test_data.save(blueprint.model_path.replace('.model', '.conllu'))
+        # test_data.save(blueprint.model_path.replace('.model', '.conllu'))
+        test_data.save(os.path.join('outputs', CONLL_OUT))
