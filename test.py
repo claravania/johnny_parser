@@ -29,7 +29,8 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
     test_rows = data_to_rows(test_set, vocabs, bp)
 
     v_arcs_rev_index = dict((val, key) for key, val in v_arcs.index.items())
-    v_aux_rev_index = dict((val, key) for key, val in v_aux.index.items())
+    if v_aux:
+        v_aux_rev_index = dict((val, key) for key, val in v_aux.index.items())
 
     # Remove all info we are going to predict
     # to make sure we don't make a fool of ourselves
@@ -74,12 +75,17 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
         batch_id = 0
         idx_sample = 0
         num_tokens = 0
-
+        mtl = False
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
 
             batch_size = 0
             batch_id += 1
-            word_batch, pos_batch, head_batch, label_batch, aux_label_batch = zip(*batch)
+            if len(batch) == 5:
+                mtl = True
+                word_batch, pos_batch, head_batch, label_batch, aux_label_batch = zip(*batch)
+            else:
+                word_batch, pos_batch, head_batch, label_batch = zip(*batch)
+                aux_label_batch = None
 
             if extract_attn:
                 print('Batch:', batch_id)
@@ -133,10 +139,15 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                 print()
 
             loss = model.loss
-            acc = model.acc
-
             loss_value = float(loss.data)
-            acc_value = float(acc.data)
+
+            if mtl:
+                acc = model.acc
+                acc_value = float(acc.data)
+                mean_acc(acc_value)
+                tag_acc = mean_acc.score
+            else:
+                tag_acc = 0.0
 
             if arc_preds and lbl_preds:
                 for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
@@ -163,8 +174,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     batch_size += 1
 
             mean_loss(loss_value)
-            mean_acc(acc_value)
-            out_str = tf_str.format(batch_size, mean_loss.score, u_scorer.score, l_scorer.score, mean_acc.score)
+            out_str = tf_str.format(batch_size, mean_loss.score, u_scorer.score, l_scorer.score, tag_acc)
             pbar.set_description(out_str)
             pbar.update(batch_size)
 
@@ -179,7 +189,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
     stats = {'test_mean_loss': mean_loss.score,
              'test_uas': u_scorer.score,
              'test_las': l_scorer.score,
-             'aux_acc': mean_acc.score}
+             'aux_acc': tag_acc}
 
     # TODO: save these
     bp.test_results = stats
