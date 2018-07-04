@@ -43,10 +43,13 @@ model:
   mlp_lbl_units: 100
   arc_dropout: 0.2
   lbl_dropout: 0.6
+  tag_dropout: 0.2
   num_labels: dunno
   treeify: none
-  apply_mtl: false
-  add_feat: true
+  apply_mtl: case
+  alpha: 1.0
+  beta: 0.0
+  add_feat: false
 optimizer:
   grad_clip: 5
   learning_rate: 0.001

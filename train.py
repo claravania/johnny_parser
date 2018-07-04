@@ -53,7 +53,7 @@ def to_ngrams(word, n=1):
     return tuple(word[i:i+n] for i in range(len(word)-n+1))
 
 
-def to_ngrams_feat(word, morph, n=1):
+def to_ngrams_feat(word, upos, morph, n=1):
     assert(n > 0)
     case = '_'
     for m in morph:
@@ -64,13 +64,21 @@ def to_ngrams_feat(word, morph, n=1):
         tok = list(word)
     else:
         tok = list(word[i:i+n] for i in range(len(word)-n+1))
+    # if upos.lower() == 'noun':
+    # randomly drop the label
+    if case != '_':
+        rand = np.random.choice(2, 1, p=[0.2, 0.8])
+        if rand[0] < 1:
+            case = '_'
     tok.append(case)
+    # else:
+    #    tok.append('_')
     return tuple(tok)
 
 
-def create_ngrams(conf, word, feat, n=1):
+def create_ngrams(conf, word, upos, feat, n=1):
     if conf.model.add_feat:
-        return to_ngrams_feat(word, feat, n)
+        return to_ngrams_feat(word, upos, feat, n)
     else:
         return to_ngrams(word, n)
 
@@ -118,16 +126,16 @@ def create_vocabs(t_set, conf):
         # t_tokens = (chain.from_iterable(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram)
         #            for w in s)
         #            for s in t_set.words)
-        t_tokens = (chain.from_iterable(create_ngrams(conf, preprocess(w, conf.preprocess), f, n=conf.ngram)
-                    for w, f in zip(s1, s2))
-                    for s1, s2 in zip(t_set.words, t_set.feats))
+        t_tokens = (chain.from_iterable(create_ngrams(conf, preprocess(w, conf.preprocess), upos, f, n=conf.ngram)
+                    for w, upos, f in zip(s1, s2, s3))
+                    for s1, s2, s3 in zip(t_set.words, t_set.upostags, t_set.feats))
 
 
     v_word = Vocab(out_size=conf.vocab.size,
                    threshold=conf.vocab.threshold).fit(chain.from_iterable(t_tokens))
 
     v_aux = None
-    if conf.model.apply_mtl:
+    if conf.model.beta > 0:
         aux_tag = conf.model.apply_mtl
         aux_labels = set()
         for sent_feat in t_set.feats:
@@ -175,33 +183,34 @@ def data_to_rows(data, vocabs, conf):
         # words_indices = tuple(tuple(v.encode(to_ngrams(preprocess(w, conf.preprocess), n=conf.ngram))
         #                for w in s)
         #                for s in data.words)
-        words_indices = tuple(tuple(v.encode(create_ngrams(conf, preprocess(w, conf.preprocess), f, n=conf.ngram))
-                        for w, f in zip(s1, s2))
-                        for s1, s2 in zip(data.words, data.feats))
+        words_indices = tuple(tuple(v.encode(create_ngrams(conf, preprocess(w, conf.preprocess), upos, f, n=conf.ngram))
+                        for w, upos, f in zip(s1, s2, s3))
+                        for s1, s2, s3 in zip(data.words, data.upostags, data.feats))
 
     pos_indices = tuple(map(vpos.encode, data.upostags))
     labels_indices = tuple(map(varcs.encode, data.arctags))
     heads = data.heads
 
     aux_indices = None
-    if conf.model.apply_mtl:
+    if conf.model.beta > 0:
         aux_tag = conf.model.apply_mtl
         aux_tags = []
-        for sent_feat in data.feats:
+        for sent_feat, sent_upos in zip(data.feats, data.upostags):
             sent_tags = []
-            for word_feat in sent_feat:
+            for word_feat, wpos in zip(sent_feat, sent_upos):
                 wtag = '_'
                 if len(word_feat) > 0:
                     for feat in word_feat:
                         tag, val = feat.split('=')
                         if tag.lower() == aux_tag:
-                            wtag = feat
+                            if wpos.lower() == 'noun':
+                                wtag = feat
                 sent_tags.append(wtag)
             aux_tags.append(tuple(sent_tags))
         aux_tags = tuple(aux_tags)
         aux_indices = tuple(map(vaux.encode, aux_tags))
 
-    if conf.model.apply_mtl:
+    if conf.model.beta > 0:
         data_rows = zip(words_indices, pos_indices, heads, labels_indices, aux_indices)
     else:
         data_rows = zip(words_indices, pos_indices, heads, labels_indices)
@@ -410,7 +419,7 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
                            label='valid', num_labels=conf.model.num_labels)
         checkpoint_stats.update(**stats)
 
-        if conf.model.mtl_weight < 1.0:
+        if conf.model.alpha > 0.0:
             if checkpoint_stats['valid_las'] > best_valid_las:
                 best_valid_las = checkpoint_stats['valid_las']
                 best_valid_acc = checkpoint_stats['valid_mean_aux_acc']
@@ -492,7 +501,7 @@ if __name__ == "__main__":
 
     v_word.save_txt('word_vocab.txt')
     v_pos.save_txt('pos_vocab.txt')
-    if conf.model.apply_mtl:
+    if conf.model.beta > 0:
         v_aux.save_txt('aux_vocab.txt')
 
     train_rows = data_to_rows(t_set, vocabs, conf)
@@ -518,7 +527,7 @@ if __name__ == "__main__":
             conf.model.encoder.embedder.word_encoder.max_sub_len = -1
     conf.model.num_labels = len(v_arc)
 
-    if conf.model.apply_mtl:
+    if conf.model.beta > 0:
         conf.model.num_aux_lbls = len(v_aux.index)
 
     # built_conf has all class representations instantiated

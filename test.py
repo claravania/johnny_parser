@@ -75,13 +75,12 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
         batch_id = 0
         idx_sample = 0
         num_tokens = 0
-        mtl = False
+        
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
 
             batch_size = 0
             batch_id += 1
-            if len(batch) == 5:
-                mtl = True
+            if bp.model.beta > 0:
                 word_batch, pos_batch, head_batch, label_batch, aux_label_batch = zip(*batch)
             else:
                 word_batch, pos_batch, head_batch, label_batch = zip(*batch)
@@ -141,7 +140,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
             loss = model.loss
             loss_value = float(loss.data)
 
-            if mtl:
+            if bp.model.beta:
                 acc = model.acc
                 acc_value = float(acc.data)
                 mean_acc(acc_value)

@@ -39,7 +39,8 @@ class GraphParser(chainer.Chain):
                  sub_attn=False,
                  add_feat=False,
                  apply_mtl=False,
-                 mtl_weight=0.0
+                 alpha=1.0,
+                 beta=0.0
                  ):
 
         super(GraphParser, self).__init__()
@@ -60,7 +61,8 @@ class GraphParser(chainer.Chain):
 
         # MTL parameters
         self.apply_mtl = apply_mtl
-        self.mtl_weight = mtl_weight  # weight for the auxiliary task loss
+        self.alpha = alpha
+        self.beta = beta
 
         assert(treeify in self.TREE_OPTS)
         self.unit_mult = 2 if encoder.use_bilstm else 1
@@ -93,7 +95,7 @@ class GraphParser(chainer.Chain):
                 self.W_dependent = L.Linear(mlp_arc_units, mlp_arc_units)
                 self.U_lbl_attn = L.Linear(mlp_arc_units, mlp_lbl_units)
 
-            if self.apply_mtl:
+            if self.beta > 0:
                 self.l1_tag = L.Linear(self.unit_mult*self.encoder.num_units, self.mlp_tag_units)
                 self.l2_tag = L.Linear(self.mlp_tag_units, self.mlp_tag_units)
                 self.out_tag = L.Linear(self.mlp_tag_units, self.num_aux_lbls)
@@ -512,6 +514,9 @@ class GraphParser(chainer.Chain):
 
         h_tag = F.relu(self.l1_tag(sent_states))
         h_tag = F.dropout(F.relu(self.l2_tag(h_tag)), ratio=self.tag_dropout)
+
+        # h_tag = self.l1_tag(sent_states)
+        # h_tag = F.dropout(self.l2_tag(h_tag), ratio=self.tag_dropout)
         
         tag_logits = self.out_tag(h_tag)
         tag_logits = F.reshape(tag_logits, (-1, batch_size, self.num_aux_lbls))
@@ -582,7 +587,7 @@ class GraphParser(chainer.Chain):
         if calc_loss:
             sorted_heads = [heads[i] for i in perm_indices]
             sorted_labels = [labels[i] for i in perm_indices]
-            if self.apply_mtl:
+            if self.beta > 0:
                 sorted_aux_labels = [aux_labels[i] for i in perm_indices]
         else:
             sorted_heads, sorted_labels, sorted_aux_labels = None, None, None
@@ -602,18 +607,18 @@ class GraphParser(chainer.Chain):
             # heads are seq_len - 1 in length because they don't include ROOT
             gold_heads = self.encoder.transpose_batch(sorted_heads)
             gold_tags = self.encoder.transpose_batch(sorted_labels)
-            if self.apply_mtl:
+            if self.beta > 0:
                 gold_aux_tags = self.encoder.transpose_batch(sorted_aux_labels)
         else:
             gold_heads = None
 
 
-        if self.apply_mtl:
+        if self.beta > 0:
             aux_loss, aux_acc, pred_tags = self._predict_tags(final_states, self.encoder.mask, batch_stats,
                 sorted_tags=gold_aux_tags)
 
         # check if we only want to perform tagging, no need to predict head/label
-        if self.mtl_weight != 1.0:
+        if self.alpha > 0:
             # perform subword attention
             if self.sub_attn:
                 self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
@@ -708,9 +713,8 @@ class GraphParser(chainer.Chain):
 
 
         # normalize loss over all tokens seen
-        _lambda = 1 - self.mtl_weight
         total_tokens = np.sum(self.encoder.col_lengths)
-        self.loss = (_lambda * self.loss + (1 - _lambda) * aux_loss) / total_tokens
+        self.loss = ((self.alpha * self.loss) + (self.beta * aux_loss)) / total_tokens
         self.acc = aux_acc
 
         inv_perm_indices = [perm_indices.index(i) for i in range(len(perm_indices))]
@@ -719,7 +723,7 @@ class GraphParser(chainer.Chain):
             self.lbls = self.lbls[inv_perm_indices]
 
         input_sent_lengths = [len(sent) for sent in inputs[0]]
-        if self.apply_mtl:
+        if self.beta > 0:
             final_tags = []
             for i in range(max_sent_len - 1):
                 for j, tag_id in enumerate(pred_tags[i]):
@@ -735,7 +739,7 @@ class GraphParser(chainer.Chain):
             tag_preds = None
 
 
-        if self.mtl_weight != 1.0:
+        if self.alpha > 0:
             arcs = [arc_preds[i] for i in inv_perm_indices]
             lbls = lbls[inv_perm_indices]
             lbl_preds = np.argmax(lbls, axis=1)
