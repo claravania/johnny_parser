@@ -250,7 +250,7 @@ def visualise_dict(d, num_items=50):
     print('\n\n')
 
 
-def train_epoch(model, optimizer, buckets, data_size):
+def train_epoch(model, optimizer, buckets, data_size, swap=False):
     iters = 0
     tf_str = 'Train: batch_size={0:d}, mean loss={1:.2f} mean acc={4:.2f}, mean UAS={2:.3f} mean LAS={3:.3f}'
     with tqdm(total=data_size, leave=False) as pbar, \
@@ -264,6 +264,7 @@ def train_epoch(model, optimizer, buckets, data_size):
         total_batch = 0
         mtl = False
         for batch in buckets:
+
             seqs = list(zip(*batch))
 
             if len(seqs) == 5:
@@ -273,13 +274,20 @@ def train_epoch(model, optimizer, buckets, data_size):
                 aux_label_batch = None
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+            
+            if swap:
+                it = 1
+            else:
+                it = 0
 
-            loss = model.loss
+            for i in range(it, -1, 1):
+                # i = 1 means that we train the tagger first
+                arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=i)
 
-            model.cleargrads()
-            loss.backward()
-            optimizer.update()
+                loss = model.loss
+                model.cleargrads()
+                loss.backward()
+                optimizer.update()
 
             loss_value = float(loss.data)
 
@@ -341,7 +349,7 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
                 aux_label_batch = None
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=0)
             loss = model.loss
             loss_value = float(loss.data)
 
@@ -410,7 +418,7 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
     while e < conf.max_epochs:
         checkpoint_stats = dict()
         # train
-        stats = train_epoch(model, opt, train_buckets, cp_iters)
+        stats = train_epoch(model, opt, train_buckets, cp_iters, conf.mtl_swap)
 
         checkpoint_stats.update(**stats)
 
