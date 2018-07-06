@@ -716,9 +716,10 @@ class GraphParser(chainer.Chain):
 
         # normalize loss over all tokens seen
         total_tokens = np.sum(self.encoder.col_lengths)
-        print(self.loss)
-        import pdb
-        pdb.set_trace()
+        if self.beta > 0 and self.alpha > 0:
+            if swap == 0:
+                aux_loss = 0
+
         self.loss = ((self.alpha * self.loss) + (self.beta * aux_loss)) / total_tokens
         self.acc = aux_acc
 

@@ -280,7 +280,7 @@ def train_epoch(model, optimizer, buckets, data_size, swap=False):
             else:
                 it = 0
 
-            for i in range(it, -1, 1):
+            for i in range(it, -1, -1):
                 # i = 1 means that we train the tagger first
                 arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=i)
 
