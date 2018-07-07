@@ -20,6 +20,7 @@ model:
     _module: johnny.components
     _classname: SentenceEncoder
     dropout: 0.6
+    hierarchy: false
     embedder:
       _module: johnny.components
       _classname: SubwordEmbedder

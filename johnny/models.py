@@ -596,7 +596,11 @@ class GraphParser(chainer.Chain):
 
         # get states from the RNN encoder
         rnn_states, embeddings = self.encoder(extract_feat, *sorted_inputs)
-        final_states = rnn_states
+        aux_states = rnn_states[0]
+        if len(rnn_states) > 1:
+            final_states = rnn_states[1]
+        else:
+            final_states = rnn_states[0]
 
         batch_stats = (self.encoder.batch_size,
                        self.encoder.max_seq_len,
@@ -615,7 +619,7 @@ class GraphParser(chainer.Chain):
 
 
         if self.beta > 0:
-            aux_loss, aux_acc, pred_tags = self._predict_tags(final_states, self.encoder.mask, batch_stats,
+            aux_loss, aux_acc, pred_tags = self._predict_tags(aux_states, self.encoder.mask, batch_stats,
                 sorted_tags=gold_aux_tags)
 
         # check if we need to predict head/label

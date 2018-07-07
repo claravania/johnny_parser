@@ -93,16 +93,24 @@ class SentenceEncoder(chainer.Chain):
     CHAINER_IGNORE_LABEL = -1
 
     def __init__(self, embedder, use_bilstm=True, num_layers=1,
-                 num_units=100, dropout=0.2):
+                 num_units=100, dropout=0.2, hierarchy=False):
 
         super(SentenceEncoder, self).__init__()
         with self.init_scope():
             self.embedder = embedder
             # we already have sorted input, so we removed the code that permutes
             # input and output (hence why we don't use the chainer class)
+            
             in_size = self.embedder.out_size
-            self.rnn = NStepLSTMBase(num_layers,
+            
+            self.rnn1 = NStepLSTMBase(num_layers,
                              in_size,
+                             num_units,
+                             dropout,
+                             use_bi_direction=use_bilstm)
+
+            self.rnn2 = NStepLSTMBase(num_layers,
+                             num_units*2,
                              num_units,
                              dropout,
                              use_bi_direction=use_bilstm)
@@ -111,6 +119,7 @@ class SentenceEncoder(chainer.Chain):
         self.num_layers = num_layers
         self.num_units = num_units
         self.dropout = dropout
+        self.hierarchy = hierarchy
 
         self.mask = None
         self.col_lengths = None
@@ -205,53 +214,50 @@ class SentenceEncoder(chainer.Chain):
 
         
         states = batch_embeddings
-        _, _, states = self.rnn(None, None, states)
-        # rnn_states = []
-        # for n in range(self.num_layers):
-            
-        #     d_states = []
-        #     for idx, s in enumerate(states):
-        #         d_states.append(F.dropout(s, self.dropout))
-        #     states = d_states
-        #     rnn_states.append(states)
+        all_states = []
+        
+        _, _, states_1 = self.rnn1(None, None, states)
+        all_states.append(states_1)
 
-        # print(d_states[0].data)
+        if self.hierarchy:
+            _, _, states_2 = self.rnn2(None, None, states_1)
+            all_states.append(states_2)
 
-        # import pdb
-        # pdb.set_trace()
+        new_states = []
+        for states in all_states:
+            # we don't use the START and END encoded states in attention
+            # so we get rid of them from states and col_lengths
+            # also creates col_lengths
+            # states = self.deaugment(states)
+            keep = list()
+            self.col_lengths = []
+            # END tokens are spread out across the matrix since
+            # we have variable length inputs (sorted)
+            # eg:  S R 1 2 3 4 E     We want to get rid of S and E without
+            #      S R 5 6 E         transposing and stuff (we want to keep
+            #      S R 7 E           the root embedding R)
+            #
+            # to:  1 2 3 4
+            #      5 6
+            #      7
+            for i in range(1, len(states) - 1):
+                # if the next column is shorter, it means that in the original
+                # data this column was shorter. If not clear imagine a layer of
+                # blocks falling when playing tetris.
+                diff = len(states[i]) - len(states[i+1])
+                if diff > 0:
+                    clean = states[i][:-diff]
+                else:
+                    clean = states[i]
+                col_len = len(clean)
+                self.col_lengths.append(col_len)
+                keep.append(F.pad(clean,
+                                  ((0, self.batch_size - col_len), (0,0)),
+                                  'constant',
+                                  constant_values=0.))
 
-        # we don't use the START and END encoded states in attention
-        # so we get rid of them from states and col_lengths
-        # also creates col_lengths
-        # states = self.deaugment(states)
-        keep = list()
-        self.col_lengths = []
-        # END tokens are spread out across the matrix since
-        # we have variable length inputs (sorted)
-        # eg:  S R 1 2 3 4 E     We want to get rid of S and E without
-        #      S R 5 6 E         transposing and stuff (we want to keep
-        #      S R 7 E           the root embedding R)
-        #
-        # to:  1 2 3 4
-        #      5 6
-        #      7
-        for i in range(1, len(states) - 1):
-            # if the next column is shorter, it means that in the original
-            # data this column was shorter. If not clear imagine a layer of
-            # blocks falling when playing tetris.
-            diff = len(states[i]) - len(states[i+1])
-            if diff > 0:
-                clean = states[i][:-diff]
-            else:
-                clean = states[i]
-            col_len = len(clean)
-            self.col_lengths.append(col_len)
-            keep.append(F.pad(clean,
-                              ((0, self.batch_size - col_len), (0,0)),
-                              'constant',
-                              constant_values=0.))
-
-        states = F.vstack(keep) 
+            states = F.vstack(keep)
+            new_states.append(states)
 
         # discard first and last column. The first column always contains
         # START. The last column contains only END but END tokens are
@@ -275,9 +281,9 @@ class SentenceEncoder(chainer.Chain):
 
         if not extract_feat:
             # returns array (layers) of 2d (batch_size x max_sentence_length) x num_hidden
-            return states, None
+            return new_states, None
         else:
-            return states, batch_embeddings
+            return new_states, batch_embeddings
 
 
     def attn_subword_embeds(self, units_dim, max_sub_len, *in_seqs):
@@ -474,7 +480,6 @@ class CNNWordEncoder(chainer.Chain):
             embeddings = self.embed_layer(word_vars)
 
             stacked = F.reshape(embeddings, (shard_len, -1, self.embed_units))
-
             stacked = F.expand_dims(stacked, axis=1)
 
             # for each in batch_embeddings:
