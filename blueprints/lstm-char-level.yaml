@@ -20,7 +20,6 @@ model:
     _module: johnny.components
     _classname: SentenceEncoder
     dropout: 0.6
-    hierarchy: false
     embedder:
       _module: johnny.components
       _classname: SubwordEmbedder
@@ -52,6 +51,7 @@ model:
   alpha: 1.0
   beta: 0.0
   add_feat: false
+  hierarchy: false
 optimizer:
   grad_clip: 5
   learning_rate: 0.001

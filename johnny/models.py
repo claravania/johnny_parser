@@ -39,6 +39,7 @@ class GraphParser(chainer.Chain):
                  sub_attn=False,
                  add_feat=False,
                  apply_mtl=False,
+                 hierarchy=False,
                  alpha=1.0,
                  beta=0.0
                  ):
@@ -63,6 +64,7 @@ class GraphParser(chainer.Chain):
         self.apply_mtl = apply_mtl
         self.alpha = alpha
         self.beta = beta
+        self.hierarchy = hierarchy
 
         assert(treeify in self.TREE_OPTS)
         self.unit_mult = 2 if encoder.use_bilstm else 1
@@ -595,7 +597,7 @@ class GraphParser(chainer.Chain):
 
 
         # get states from the RNN encoder
-        rnn_states, embeddings = self.encoder(extract_feat, *sorted_inputs)
+        rnn_states, embeddings = self.encoder(extract_feat, self.hierarchy, *sorted_inputs)
         aux_states = rnn_states[0]
         if len(rnn_states) > 1:
             final_states = rnn_states[1]

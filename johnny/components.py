@@ -93,7 +93,7 @@ class SentenceEncoder(chainer.Chain):
     CHAINER_IGNORE_LABEL = -1
 
     def __init__(self, embedder, use_bilstm=True, num_layers=1,
-                 num_units=100, dropout=0.2, hierarchy=False):
+                 num_units=100, dropout=0.2):
 
         super(SentenceEncoder, self).__init__()
         with self.init_scope():
@@ -119,7 +119,6 @@ class SentenceEncoder(chainer.Chain):
         self.num_layers = num_layers
         self.num_units = num_units
         self.dropout = dropout
-        self.hierarchy = hierarchy
 
         self.mask = None
         self.col_lengths = None
@@ -148,7 +147,7 @@ class SentenceEncoder(chainer.Chain):
                      for i in range(max_seq_len)]
         return batch
 
-    def __call__(self, extract_feat=False, *in_seqs):
+    def __call__(self, extract_feat=False, hierarchy=False, *in_seqs):
         """Creates lstm embedding of the sentence and pos tags.
         If use_bilstm is specified - the embedding is formed from
         concatenating the forward and backward activations
@@ -219,7 +218,7 @@ class SentenceEncoder(chainer.Chain):
         _, _, states_1 = self.rnn1(None, None, states)
         all_states.append(states_1)
 
-        if self.hierarchy:
+        if hierarchy:
             _, _, states_2 = self.rnn2(None, None, states_1)
             all_states.append(states_2)
 
