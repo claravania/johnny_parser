@@ -75,6 +75,9 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
         batch_id = 0
         idx_sample = 0
         num_tokens = 0
+
+        num_tag_tokens = 0
+        correct_tag_pred = 0
         
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
 
@@ -149,7 +152,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                 tag_acc = 0.0
 
             if arc_preds and lbl_preds:
-                for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
+                for tags, p_arcs, p_lbls, t_arcs, t_lbls in zip(tag_preds, arc_preds, lbl_preds, head_batch, label_batch):
                     u_scorer(arcs=(p_arcs, t_arcs))
                     l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
 
@@ -157,10 +160,15 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     str_labels = [v_arcs_rev_index[l] for l in p_lbls]
                     test_set[index].set_labels(str_labels)
 
+                    if output_tags:
+                        tags = tuple(tags.tolist())
+                        str_tags = [v_aux_rev_index[l] for l in tags]
+                        test_set[index].set_feats(str_tags)
+
                     index += 1
                     batch_size += 1
             else:
-                for tags, t_arcs, t_lbls in zip(tag_preds, head_batch, label_batch):
+                for tags, gold_tags, t_arcs, t_lbls, upostags, words in zip(tag_preds, aux_label_batch, head_batch, label_batch, pos_batch, word_batch):
                     test_set[index].set_heads(t_arcs)
                     str_labels = [v_arcs_rev_index[l] for l in t_lbls]
                     test_set[index].set_labels(str_labels)
@@ -168,6 +176,12 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     tags = tuple(tags.tolist())
                     str_tags = [v_aux_rev_index[l] for l in tags]
                     test_set[index].set_feats(str_tags)
+                    
+
+                    for gtag, ptag, pos in zip(gold_tags, tags, upostags):
+                        num_tag_tokens += 1
+                        if gtag == ptag:
+                            correct_tag_pred += 1
 
                     index += 1
                     batch_size += 1
@@ -194,6 +208,9 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
     bp.test_results = stats
     for key, val in sorted(stats.items()):
         print('%s: %s' % (key, val))
+
+
+    print('Accuracy:', round(correct_tag_pred * 100 / num_tag_tokens, 1))
 
 
 if __name__ == "__main__":

@@ -66,10 +66,10 @@ def to_ngrams_feat(word, upos, morph, n=1):
         tok = list(word[i:i+n] for i in range(len(word)-n+1))
     # if upos.lower() == 'noun':
     # randomly drop the label
-    if case != '_':
-        rand = np.random.choice(2, 1, p=[0.2, 0.8])
-        if rand[0] < 1:
-            case = '_'
+    # if case != '_':
+    #     rand = np.random.choice(2, 1, p=[0.2, 0.8])
+    #     if rand[0] < 1:
+    #        case = '_'
     tok.append(case)
     # else:
     #    tok.append('_')
@@ -203,8 +203,7 @@ def data_to_rows(data, vocabs, conf):
                     for feat in word_feat:
                         tag, val = feat.split('=')
                         if tag.lower() == aux_tag:
-                            if wpos.lower() == 'noun':
-                                wtag = feat
+                            wtag = feat
                 sent_tags.append(wtag)
             aux_tags.append(tuple(sent_tags))
         aux_tags = tuple(aux_tags)
