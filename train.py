@@ -203,8 +203,7 @@ def data_to_rows(data, vocabs, conf):
                     for feat in word_feat:
                         tag, val = feat.split('=')
                         if tag.lower() == aux_tag:
-                            if wpos.lower() == 'noun':
-                                wtag = feat
+                            wtag = feat
                 sent_tags.append(wtag)
             aux_tags.append(tuple(sent_tags))
         aux_tags = tuple(aux_tags)
