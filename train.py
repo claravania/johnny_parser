@@ -66,10 +66,10 @@ def to_ngrams_feat(word, upos, morph, n=1):
         tok = list(word[i:i+n] for i in range(len(word)-n+1))
     # if upos.lower() == 'noun':
     # randomly drop the label
-    if case != '_':
-        rand = np.random.choice(2, 1, p=[0.2, 0.8])
-        if rand[0] < 1:
-            case = '_'
+    # if case != '_':
+    #     rand = np.random.choice(2, 1, p=[0.2, 0.8])
+    #     if rand[0] < 1:
+    #         case = '_'
     tok.append(case)
     # else:
     #    tok.append('_')
