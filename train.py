@@ -381,6 +381,11 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
 
 def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
 
+    model = conf.model
+    if gpu_id >= 0:
+        model.to_gpu(gpu_id)
+    chainer.cuda.get_device(gpu_id).use()
+    
     train_buckets = BucketManager(train_rows,
                                   conf.train_buckets.bucket_width,
                                   conf.dataset.train_max_sent_len,
@@ -393,9 +398,6 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
 
     print('training max seq len ', train_buckets.max_len)
 
-    model = conf.model
-    if gpu_id >= 0:
-        model.to_gpu(gpu_id)
 
     opt = chainer.optimizers.Adam(alpha=conf.optimizer.learning_rate)
     opt.setup(model)
@@ -483,7 +485,7 @@ if __name__ == "__main__":
     parser.add_argument('--load_blueprint', action=YAMLLoaderAction)
 
     conf = parser.parse_args()
-
+    chainer.cuda.get_device(conf.gpu_id).use()
     outfolder = conf.get('outfolder', os.environ.get(EXP_ENV_VAR))
 
     # setup seeds for reproducibility 
