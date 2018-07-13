@@ -76,8 +76,6 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
         idx_sample = 0
         num_tokens = 0
 
-        num_tag_tokens = 0
-        correct_tag_pred = 0
         
         for batch in to_batches(test_rows, BATCH_SIZE, sort=False):
 
@@ -177,12 +175,6 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     str_tags = [v_aux_rev_index[l] for l in tags]
                     test_set[index].set_feats(str_tags)
                     
-
-                    for gtag, ptag, pos in zip(gold_tags, tags, upostags):
-                        num_tag_tokens += 1
-                        if gtag == ptag:
-                            correct_tag_pred += 1
-
                     index += 1
                     batch_size += 1
 
@@ -208,9 +200,6 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
     bp.test_results = stats
     for key, val in sorted(stats.items()):
         print('%s: %s' % (key, val))
-
-
-    print('Accuracy:', round(correct_tag_pred * 100 / num_tag_tokens, 1))
 
 
 if __name__ == "__main__":
