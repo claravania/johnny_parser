@@ -561,7 +561,7 @@ class GraphParser(chainer.Chain):
         heads = kwargs.get('heads', None)
         labels = kwargs.get('labels', None)
         aux_labels = kwargs.get('aux_labels', None)
-        swap = kwargs.get('swp', 0)
+        swap = kwargs.get('swp', -1)
 
         calc_loss = ((heads is not None) and (labels is not None))
         # in order to process batches of different sized sentences using LSTM in chainer
