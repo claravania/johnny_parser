@@ -275,14 +275,15 @@ def train_epoch(model, optimizer, buckets, data_size, swap=False):
             head_batch = seqs.pop()
             
             if swap:
-                it = 1
+                for i in range(1, -1, -1):
+                    # i = 1 means that we train the tagger first
+                    arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=i)
+                    loss = model.loss
+                    model.cleargrads()
+                    loss.backward()
+                    optimizer.update()
             else:
-                it = 0
-
-            for i in range(it, -1, -1):
-                # i = 1 means that we train the tagger first
-                arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=i)
-
+                arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=-1)
                 loss = model.loss
                 model.cleargrads()
                 loss.backward()
@@ -348,7 +349,7 @@ def eval_epoch(model, buckets, data_size, label='', num_labels=None):
                 aux_label_batch = None
             label_batch = seqs.pop()
             head_batch = seqs.pop()
-            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=0)
+            arc_preds, lbl_preds, _ = model([False, False], *seqs, heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=-1)
             loss = model.loss
             loss_value = float(loss.data)
 

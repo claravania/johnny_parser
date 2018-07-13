@@ -92,14 +92,14 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
             flags = [extract_feat, extract_attn]
             if UNLABELLED:
                 arc_preds, lbl_preds = model(flags, word_batch, pos_batch,
-                                             heads=None, labels=None)
+                                             heads=None, labels=None, swp=-1)
             else:
                 if not extract_feat:
                     arc_preds, lbl_preds, tag_preds = model(flags, word_batch, pos_batch,
-                                         heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+                                         heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=-1)
                 else:
                     arc_preds, lbl_preds, tag_preds, states, embs = model(flags, word_batch, pos_batch,
-                                         heads=head_batch, labels=label_batch, aux_labels=aux_label_batch)
+                                         heads=head_batch, labels=label_batch, aux_labels=aux_label_batch, swp=-1)
 
             if extract_feat:
                 true_bs = len(word_batch)

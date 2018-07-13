@@ -563,7 +563,7 @@ class GraphParser(chainer.Chain):
         heads = kwargs.get('heads', None)
         labels = kwargs.get('labels', None)
         aux_labels = kwargs.get('aux_labels', None)
-        swap = kwargs.get('swp', 0)
+        swap = kwargs.get('swp', -1)
 
         calc_loss = ((heads is not None) and (labels is not None))
         # in order to process batches of different sized sentences using LSTM in chainer
@@ -626,7 +626,7 @@ class GraphParser(chainer.Chain):
 
         # check if we need to predict head/label
         # if swap == 1, we do MTL but want to do tagging first
-        if self.alpha > 0 and swap == 0:
+        if self.alpha > 0 and swap <= 0:
             # perform subword attention
             if self.sub_attn:
                 self.subword_embeds, _, sent_sub_lengths = self.encoder.attn_subword_embeds(self.units_dim, self.max_sub_len, *sorted_inputs)
@@ -751,7 +751,7 @@ class GraphParser(chainer.Chain):
             tag_preds = None
 
 
-        if self.alpha > 0 and swap == 0:
+        if self.alpha > 0 and swap <= 0:
             arcs = [arc_preds[i] for i in inv_perm_indices]
             lbls = lbls[inv_perm_indices]
             lbl_preds = np.argmax(lbls, axis=1)
