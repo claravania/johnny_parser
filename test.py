@@ -43,6 +43,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
     
     if bp.gpu_id >= 0:
         model.to_gpu(bp.gpu_id)
+    chainer.cuda.get_device(bp.gpu_id).use()
     chainer.serializers.load_npz(model_path, model)
 
     # test
@@ -150,7 +151,8 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                 tag_acc = 0.0
 
             if arc_preds and lbl_preds:
-                for tags, p_arcs, p_lbls, t_arcs, t_lbls in zip(tag_preds, arc_preds, lbl_preds, head_batch, label_batch):
+                it = 0
+                for p_arcs, p_lbls, t_arcs, t_lbls in zip(arc_preds, lbl_preds, head_batch, label_batch):
                     u_scorer(arcs=(p_arcs, t_arcs))
                     l_scorer(arcs=(p_arcs, t_arcs), labels=(p_lbls, t_lbls))
 
@@ -159,10 +161,12 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
                     test_set[index].set_labels(str_labels)
 
                     if output_tags:
+                        tags = tag_preds[it]
                         tags = tuple(tags.tolist())
                         str_tags = [v_aux_rev_index[l] for l in tags]
                         test_set[index].set_feats(str_tags)
-
+                    
+                    it += 1
                     index += 1
                     batch_size += 1
             else:
