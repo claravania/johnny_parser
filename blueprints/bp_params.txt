@@ -1,0 +1,18 @@
+
+Notes for parameters in BP:
+
+- train_size: percentage of training data to use.
+- model.out_sizes: dimension for POS tag embeddings.
+- model.add_feat: if true, we explicitly append 'case' feature to the character input.
+
+Multitask learning setup:
+- mtl_swap: If we want to alternate update for auxiliary and main task.
+            If set to true, for each batch we perform two updates, first pass
+            is updates based from auxiliary loss, second pass is based on
+            main task loss.
+- model.apply_mtl: morphological feature to predict in the auxiliary task.
+- model.alpha: weight for main task.
+- model.beta: weight for auxiliary task.
+
+
+
