@@ -14,7 +14,22 @@ Multitask learning setup:
 - model.alpha: weight for main task.
 - model.beta: weight for auxiliary task.
 - model.hierarchy: use 2 layers of bi-LSTM encoder, use the first 2 layers for 
-                   auxiliary task.
+                   auxiliary task. If false, we use 2 layers only, the auxiliary task
+                   and main task share the same encoder.
 
 
+=============================================================================================
+
+Example script for running MTL:
+
+Training:
+
+python train.py -i ~/Projects/dataset/ud-treebanks-v2.0 --verbose -o models --gpu_id 0 --name hrc-mtl --load_blueprint blueprints/lstm-char-level.yaml --dataset.lang German --model.hierarchy true --model.beta 1.0
+python train.py -i ~/Projects/dataset/ud-treebanks-v2.0 --verbose -o models --gpu_id 0 --name hrc-mtl-swp --load_blueprint blueprints/lstm-char-level.yaml --dataset.lang German --model.hierarchy true --model.beta 1.0 --mtl_swap true
+
+Testing:
+
+python test.py --test_file ~/Projects/dataset/ud-treebanks-v2.0/UD_German/de.conllu --blueprint models/conll2017_v2_0/german/hrc-mtl.bp --output_tags --conll_out test.out
+
+(--output_tags: replace morphological tags with predicted tags in the output file.)
 
