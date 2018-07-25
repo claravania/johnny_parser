@@ -1,13 +1,14 @@
 # [![Build Status](https://api.travis-ci.org/andreasgrv/johnny.svg?branch=master)](https://travis-ci.org/andreasgrv/johnny) Johnny - DEPendency Parser
 
 This is a work in progress.
-I have uploaded the training scripts to replicate the work done in my
-dissertation but I am still adding more.
 
-Upcoming:
+The following code is originally from [here](https://github.com/andreasgrv/johnny), v0.1.1 release, now can support chainer v4.3.0
+Additional features implemented:
+* Allow input based on morphological analysis (oracle)
+* Attention over morphological features of the headword
+* Option to extract hidden states of the encoder
+* Option to extract attention vector
 
-* Pretrained models
-* Web visualisation
 
 ### What is johnny?
 
