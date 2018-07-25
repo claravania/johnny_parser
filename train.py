@@ -392,8 +392,8 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
     
     model = conf.model
     if gpu_id >= 0:
+        chainer.backends.cuda.get_device_from_id(gpu_id).use()
         model.to_gpu(gpu_id)
-        chainer.cuda.get_device(gpu_id).use()
     
     train_buckets = BucketManager(train_rows,
                                   conf.train_buckets.bucket_width,
@@ -496,7 +496,7 @@ if __name__ == "__main__":
     conf = parser.parse_args()
 
     if conf.gpu_id >= 0:
-        chainer.cuda.get_device(conf.gpu_id).use()
+        chainer.backends.cuda.get_device_from_id(conf.gpu_id).use()
 
     outfolder = conf.get('outfolder', os.environ.get(EXP_ENV_VAR))
 

@@ -43,7 +43,7 @@ def test_loop(args, bp, test_set, feat_file=None, label_file=None):
     
     if bp.gpu_id >= 0:
         model.to_gpu(bp.gpu_id)
-        chainer.cuda.get_device(bp.gpu_id).use()
+        chainer.backends.cuda.get_device_from_id(bp.gpu_id).use()
     chainer.serializers.load_npz(model_path, model)
 
     # test
