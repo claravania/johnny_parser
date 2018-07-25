@@ -3,6 +3,7 @@
 This is a work in progress.
 
 The following code is originally from [here](https://github.com/andreasgrv/johnny), v0.1.1 release, now can support chainer v4.3.0
+
 Additional features implemented:
 * Allow input based on morphological analysis (oracle)
 * Attention over morphological features of the headword
@@ -10,7 +11,7 @@ Additional features implemented:
 * Option to extract attention vector
 
 
-### What is johnny?
+### What is Johnny?
 
 This is an implementation of a graph based arc factored neural dependency parser implemented using [Chainer](https://chainer.org/). There are 3 encoders that can be used with this parser.
 
