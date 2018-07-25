@@ -384,7 +384,7 @@ def train_loop(train_rows, dev_rows, conf, checkpoint_callback=None, gpu_id=-1):
     model = conf.model
     if gpu_id >= 0:
         model.to_gpu(gpu_id)
-        chainer.cuda.get_device(gpu_id).use()
+        chainer.backends.cuda.get_device_from_id(gpu_id).use()
     
     train_buckets = BucketManager(train_rows,
                                   conf.train_buckets.bucket_width,
@@ -486,7 +486,7 @@ if __name__ == "__main__":
 
     conf = parser.parse_args()
     if conf.gpu_id >= 0:
-        chainer.cuda.get_device(conf.gpu_id).use()
+        chainer.backends.cuda.get_device_from_id(conf.gpu_id).use()
         # chainer.backends.cuda.get_device_from_id(conf.gpu_id).use()
     outfolder = conf.get('outfolder', os.environ.get(EXP_ENV_VAR))
 
@@ -511,10 +511,11 @@ if __name__ == "__main__":
     vocabs = create_vocabs(t_set, conf)
     v_word, v_pos, v_arc, v_aux = vocabs
 
-    v_word.save_txt('word_vocab.txt')
-    v_pos.save_txt('pos_vocab.txt')
-    if conf.model.beta > 0:
-        v_aux.save_txt('aux_vocab.txt')
+    # for debugging only, if want to double check vocabularies
+    # v_word.save_txt('word_vocab.txt')
+    # v_pos.save_txt('pos_vocab.txt')
+    # if conf.model.beta > 0:
+    #     v_aux.save_txt('aux_vocab.txt')
 
     train_rows = data_to_rows(t_set, vocabs, conf)
     dev_rows = data_to_rows(v_set, vocabs, conf)

@@ -349,11 +349,16 @@ class LSTMWordEncoder(chainer.Chain):
         with self.init_scope():
             self.embed_layer = L.EmbedID(vocab_size, num_units,
                                          ignore_label=CHAINER_IGNORE_LABEL)
-            self.rnn = chainer_nstep.NStepLSTMBase(num_layers,
-                                                   num_units,
-                                                   num_units,
-                                                   rec_dropout,
-                                                   use_bi_direction=use_bilstm)
+
+            LSTM = chainer_nstep.NStepLSTM
+            if use_bilstm:
+                LSTM = chainer_nstep.NStepBiLSTM
+
+            self.rnn = LSTM(num_layers,
+                            num_units,
+                            num_units,
+                            rec_dropout)
+
         self.vocab_size = vocab_size
         self.num_units = num_units
         self.max_sub_len = max_sub_len
