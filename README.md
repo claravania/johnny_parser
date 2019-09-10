@@ -1,6 +1,6 @@
 # [![Build Status](https://api.travis-ci.org/andreasgrv/johnny.svg?branch=master)](https://travis-ci.org/andreasgrv/johnny) Johnny - DEPendency Parser
 
-This is a work in progress.
+The following code is used for our EMNLP 2018 paper: [What do character-level models learn about morphology? The case of dependency parsing](https://aclweb.org/anthology/D18-1278)
 
 The following code is originally from [here](https://github.com/andreasgrv/johnny), v0.1.1 release, now can support chainer v4.3.0
 
